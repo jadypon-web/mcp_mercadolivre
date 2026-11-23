@@ -39,6 +39,8 @@ Tudo é feito pelas ferramentas do servidor `mercadolivre` (API oficial), nunca 
   - No UpSeller ficam em gramas; no Mercado Livre vão em quilos.
   - Arredonde sempre para cima e confira a unidade (cm ou m, kg ou g).
   - Os campos de embalagem aparecem como características em `get_category_attributes` e também devem ser preenchidos.
+- **Embalagem:** sempre passe `package` (altura, largura e comprimento em cm, peso em gramas, tirados do UpSeller). O Mercado Livre não publica sem isso.
+- **Catálogo:** se o produto existir no catálogo, depois de publicar chame `create_catalog_listing`.
 - **Fotos:** a primeira mostra o produto de pé. As fotos de cada variação vão na variação certa.
 
 ## Preço

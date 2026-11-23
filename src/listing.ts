@@ -204,7 +204,17 @@ export function tagList(attr: Record<string, unknown>): string[] {
 }
 
 // Attributes the seller can actually fill (Meli hides or locks some of them).
+// Package size attributes are tagged hidden but are mandatory on publish;
+// they are filled through create_item's package parameter instead.
+const PACKAGE_IDS = new Set([
+  "SELLER_PACKAGE_HEIGHT",
+  "SELLER_PACKAGE_WIDTH",
+  "SELLER_PACKAGE_LENGTH",
+  "SELLER_PACKAGE_WEIGHT",
+]);
+
 export function isFillable(attr: Record<string, unknown>): boolean {
+  if (PACKAGE_IDS.has(String(attr.id))) return false;
   return !hasTag(attr, "hidden") && !hasTag(attr, "read_only") && !hasTag(attr, "fixed");
 }
 

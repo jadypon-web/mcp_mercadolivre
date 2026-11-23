@@ -1,7 +1,7 @@
 {
   "name": "mercadolivre",
   "displayName": "Mercado Livre (JadyponHidro)",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "description": "Mercado Livre pela API oficial: anúncios completos (características, descrição, garantia, SKU, variações), edição de tudo, checagem de qualidade, perguntas, pedidos e envios.",
   "author": {
     "name": "JadyponHidro"
