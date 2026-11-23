@@ -1,3 +1,18 @@
+# Versão JadyponHidro (fork)
+
+Este fork é também um **marketplace de plugins do Claude**. No Claude, em *Adicionar marketplace*, cole `https://github.com/jadypon-web/mcp_mercadolivre`, sincronize e instale o plugin **mercadolivre**. Ele pede o *App ID* e o *Client Secret* do seu aplicativo do Mercado Livre; depois, peça ao Claude para usar `connect_account` e autorize no navegador. Precisa do Node.js 18+ instalado. Não precisa rodar `npm install` nem `npm run build`: o servidor já vem montado em `plugin/server/index.mjs`.
+
+Mudanças em relação ao original:
+
+- **create_item completo**: garantia e prazo de fabricação (`sale_terms`), SKU (`SELLER_SKU`), variações, fotos por link **ou** por id do `upload_picture` (antes o id era enviado como link e falhava), atributos com `value_id`, limite de título lido da categoria, contas no modelo *User Products* (`family_name`) detectadas sozinhas, bloqueio antes de enviar se faltar característica obrigatória e relatório do que ficou vazio depois de publicar.
+- **update_item edita tudo**: descrição, fotos (substituir ou acrescentar), características, SKU, garantia, frete, variações, tipo de anúncio (Clássico/Premium) e `family_name`.
+- **get_category_attributes**: mostra todas as características (não corta em 50 opções), as obrigatórias condicionais, unidades aceitas, filtro de opções, termos de venda da categoria e limite do título.
+- **Novas ferramentas**: `check_listing_quality` (o que falta num anúncio) e `connect_account` (conecta a conta pelo navegador, sem terminal).
+- Correção: abrir o navegador no Windows na autorização.
+- Skill `anunciar-mercado-livre` com o padrão de anúncios da JadyponHidro.
+
+---
+
 # MCP Mercado Livre
 
 Servidor MCP (Model Context Protocol) em TypeScript para a API do Mercado Livre, focado em vendedores. Permite que LLMs (Claude Desktop, Kimi Code, Cursor etc.) pesquisem o marketplace, publiquem e gerenciem anúncios, respondam perguntas, acompanhem pedidos, envios, reclamações, reputação, catálogo, promoções e muito mais — tudo por linguagem natural.

@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "mercadolivre": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/server/index.mjs"],
+      "env": {
+        "ML_CLIENT_ID": "${user_config.ml_client_id}",
+        "ML_CLIENT_SECRET": "${user_config.ml_client_secret}",
+        "ML_SITE_ID": "MLB",
+        "ML_REDIRECT_URI": "http://localhost:3333/callback",
+        "ML_TOKENS_FILE": "${CLAUDE_PLUGIN_DATA}/tokens.json"
+      }
+    }
+  }
+}

@@ -23,7 +23,27 @@ import {
   resolveSafety,
   toolAllowed,
 } from "./safety.js";
-import { enforceTokenPermissions } from "./token-store.js";
+import { enforceTokenPermissions, loadTokens } from "./token-store.js";
+import { runAuthFlow } from "./auth-flow.js";
+import {
+  attributeInput,
+  buildAttributes,
+  buildSaleTerms,
+  buildVariations,
+  checkListingQuality,
+  getCategoryAttributes,
+  getCategorySettings,
+  hasTag,
+  isFillable,
+  isRequired,
+  isUserProductItem,
+  isUserProductSeller,
+  missingAttributes,
+  saleTermInput,
+  tagList,
+  toPictures,
+  variationInput,
+} from "./listing.js";
 
 const server = new McpServer({
   name: "mcp-mercadolivre",
@@ -93,6 +113,10 @@ function fail(err: unknown) {
   if (err instanceof MeliApiError && err.details !== undefined) {
     message += `\nMeli response body: ${JSON.stringify(err.details)}`;
   }
+  if (/No tokens stored|refresh_token|invalid_grant/i.test(message)) {
+    message +=
+      "\nThe Mercado Livre account is not connected (or the authorization expired). Call the connect_account tool and authorize in the browser.";
+  }
   return {
     content: [{ type: "text" as const, text: `Error: ${message}` }],
     isError: true,
@@ -103,6 +127,45 @@ async function getMyUserId(): Promise<number> {
   const me = await meliGet<{ id: number }>("/users/me");
   return me.id;
 }
+
+// ---------------------------------------------------------------------------
+// Conexão da conta
+// ---------------------------------------------------------------------------
+
+registerTool(
+  "connect_account",
+  {
+    description:
+      "Connect (or reconnect) the seller's Mercado Livre account. Opens the Mercado Livre authorization page in the user's browser and waits up to 3 minutes for them to log in and click allow; tokens are then saved and renewed automatically. Use it on first use, or whenever another tool says the account is not connected. Tell the user to look at the browser window that opened.",
+    inputSchema: {
+      force: z
+        .boolean()
+        .optional()
+        .default(false)
+        .describe("Reconnect even if an account is already connected"),
+    },
+  },
+  async ({ force }) => {
+    try {
+      if (!force && loadTokens()) {
+        try {
+          const me = await meliGet<{ id: number; nickname?: string }>("/users/me");
+          return ok({ connected: true, user_id: me.id, nickname: me.nickname, note: "Already connected. Use force=true to reconnect." });
+        } catch {
+          // stored tokens no longer work: fall through to a new authorization
+        }
+      }
+      const result = await runAuthFlow();
+      if (!result.ok) {
+        return fail(new Error(`${result.message}${result.authUrl ? `\nIf the browser did not open, open this link: ${result.authUrl}` : ""}`));
+      }
+      const me = await meliGet<{ id: number; nickname?: string }>("/users/me");
+      return ok({ connected: true, user_id: me.id, nickname: me.nickname });
+    } catch (err) {
+      return fail(err);
+    }
+  }
+);
 
 // ---------------------------------------------------------------------------
 // Busca & leitura
@@ -456,37 +519,96 @@ registerTool(
   "get_category_attributes",
   {
     description:
-      "Get the attributes defined for a Mercado Livre category. Call this AFTER picking a category with predict_category and BEFORE create_item, to learn which attributes are mandatory (required=true) and what values are allowed. Every attribute flagged as required MUST be included in create_item's attributes parameter or the publication will be rejected with a validation error. Returns id, name, value_type (string/number/boolean/list/...), required flag, and allowed values (id + name) when the attribute is a closed list.",
+      "Get ALL attributes (características) of a Mercado Livre category. Call this AFTER picking a category with predict_category and BEFORE create_item. Fill every attribute where fillable=true — required ones block publication, and empty optional ones lower the listing quality. 'required' covers the tags required, catalog_required and (for new items) new_required; 'tags' also shows conditional_required (becomes mandatory depending on other values, e.g. GTIN vs EMPTY_GTIN_REASON), allow_variations (can differ per variation) and variation_attribute (goes inside each variation). For closed lists, send the value_id from allowed_values. Large lists (e.g. BRAND) can be narrowed with value_filter. Also returns the category sale terms (warranty, manufacturing time) and max_title_length.",
     inputSchema: {
       category_id: z
         .string()
         .describe("Category id returned by predict_category, e.g. 'MLB1055'"),
+      value_filter: z
+        .string()
+        .optional()
+        .describe("Only return allowed values whose name contains this text (case-insensitive), e.g. 'Tigre'"),
+      max_values: z
+        .number()
+        .int()
+        .min(1)
+        .max(2000)
+        .optional()
+        .default(300)
+        .describe("Max allowed values returned per attribute (default 300). values_total shows the full count"),
+      include_hidden: z
+        .boolean()
+        .optional()
+        .default(false)
+        .describe("Also list hidden/read-only attributes the seller cannot fill (default false)"),
     },
   },
-  async ({ category_id }) => {
+  async ({ category_id, value_filter, max_values, include_hidden }) => {
     try {
-      const data = await meliGet<Array<Record<string, unknown>>>(
-        `/categories/${category_id}/attributes`
-      );
-      const attributes = (Array.isArray(data) ? data : []).map((a) => {
-        const tags = a.tags;
-        const required = Array.isArray(tags)
-          ? tags.includes("required")
-          : (tags as Record<string, unknown> | undefined)?.required === true;
-        const values = Array.isArray(a.values)
-          ? (a.values as Array<{ id?: string; name?: string }>)
-              .slice(0, 50)
-              .map((v) => ({ id: v.id, name: v.name }))
-          : undefined;
-        return {
-          id: a.id,
-          name: a.name,
-          value_type: a.value_type,
-          required,
-          allowed_values: values,
-        };
+      const data = await getCategoryAttributes(category_id);
+      const filter = value_filter?.toLowerCase();
+      const attributes = data
+        .filter((a) => include_hidden || isFillable(a))
+        .map((a) => {
+          const all = Array.isArray(a.values)
+            ? (a.values as Array<{ id?: string; name?: string }>)
+            : [];
+          const matching = filter
+            ? all.filter((v) => (v.name ?? "").toLowerCase().includes(filter))
+            : all;
+          return {
+            id: a.id,
+            name: a.name,
+            value_type: a.value_type,
+            required: isRequired(a),
+            fillable: isFillable(a),
+            tags: tagList(a),
+            hint: a.hint,
+            tooltip: a.tooltip,
+            value_max_length: a.value_max_length,
+            allowed_units: Array.isArray(a.allowed_units)
+              ? (a.allowed_units as Array<{ id?: string; name?: string }>).map((u) => u.id ?? u.name)
+              : undefined,
+            default_unit: a.default_unit,
+            group: a.attribute_group_name,
+            values_total: all.length || undefined,
+            allowed_values: all.length
+              ? matching.slice(0, max_values).map((v) => ({ id: v.id, name: v.name }))
+              : undefined,
+          };
+        })
+        .sort((x, y) => Number(y.required) - Number(x.required));
+
+      const [settings, saleTerms] = await Promise.all([
+        getCategorySettings(category_id),
+        meliGet<Array<Record<string, unknown>>>(`/categories/${category_id}/sale_terms`).catch(
+          () => []
+        ),
+      ]);
+      const sale_terms = (Array.isArray(saleTerms) ? saleTerms : [])
+        .filter((t) => !hasTag(t, "hidden"))
+        .map((t) => ({
+          id: t.id,
+          name: t.name,
+          value_type: t.value_type,
+          required: hasTag(t, "required"),
+          allowed_units: Array.isArray(t.allowed_units)
+            ? (t.allowed_units as Array<{ id?: string; name?: string }>).map((u) => u.id ?? u.name)
+            : undefined,
+          allowed_values: Array.isArray(t.values)
+            ? (t.values as Array<{ id?: string; name?: string }>).map((v) => ({ id: v.id, name: v.name }))
+            : undefined,
+        }));
+
+      return ok({
+        category_id,
+        max_title_length: settings.max_title_length,
+        max_pictures_per_item: settings.max_pictures_per_item,
+        total_attributes: attributes.length,
+        required_count: attributes.filter((a) => a.required).length,
+        attributes,
+        sale_terms,
       });
-      return ok({ category_id, attributes });
     } catch (err) {
       return fail(err);
     }
@@ -564,16 +686,41 @@ registerTool(
 // Gestão de anúncios (escrita)
 // ---------------------------------------------------------------------------
 
+const warrantyShape = {
+  warranty_type: z
+    .string()
+    .optional()
+    .describe("Warranty type as Meli names it in MLB: 'Garantia do vendedor', 'Garantia de fábrica' or 'Sem garantia'"),
+  warranty_time: z
+    .string()
+    .optional()
+    .describe("Warranty duration with unit, e.g. '90 dias', '6 meses', '1 anos'. Omit when 'Sem garantia'"),
+  manufacturing_time: z
+    .string()
+    .optional()
+    .describe("Extra days before shipping (prazo de disponibilidade), e.g. '5 dias'. Omit when the item ships right away — it lowers exposure"),
+  sale_terms: z
+    .array(saleTermInput)
+    .optional()
+    .describe("Raw sale terms (see get_category_attributes sale_terms). Overrides the warranty/manufacturing shortcuts with the same id"),
+};
+
 registerTool(
   "create_item",
   {
     description:
-      "Create and PUBLISH a new listing on Mercado Livre — this is a real write operation: the item becomes public (immediately or per account settings) and selling fees apply once it sells. Confirm the details with the user before calling. Recommended flow: (1) predict_category with the title to get category_id; (2) get_category_attributes on that category and fill every attribute marked required via the attributes parameter; (3) optionally get_listing_types/get_listing_prices to choose the listing type and estimate fees; (4) call create_item. The title is limited to 60 characters. If Meli rejects the payload with a validation error, the full error body is returned — read it, fix the offending fields (usually missing required attributes) and retry. Returns the created item id, status and permalink.",
+      "Create and PUBLISH a COMPLETE new listing on Mercado Livre — real write operation: the item becomes public and fees apply when it sells. Confirm the details with the user first. Flow: (1) predict_category; (2) get_category_attributes and fill EVERY fillable attribute (required ones are checked here before sending; empty optional ones are reported); (3) optionally get_listing_prices; (4) create_item with title (or family_name), price, stock, description, pictures, attributes, warranty, seller_sku and, when the product has options like color/size, variations. Pictures accept public URLs or ids from upload_picture. Accounts on Meli's 'User Products' model publish with family_name instead of title — this is detected automatically. After publishing, the tool re-reads the listing and returns a quality report listing anything still empty (description, pictures, warranty, SKU, attributes) so it can be fixed with update_item right away.",
     inputSchema: {
       title: z
         .string()
-        .max(60)
-        .describe("Listing title, max 60 characters"),
+        .max(120)
+        .optional()
+        .describe("Listing title. Limit depends on the category (max_title_length, usually 60). Required unless family_name is given"),
+      family_name: z
+        .string()
+        .max(120)
+        .optional()
+        .describe("Generic product name for accounts on the User Products model (Meli builds the title from it). Defaults to title when the account needs it"),
       category_id: z
         .string()
         .describe("Category id from predict_category, e.g. 'MLB1055'"),
@@ -582,86 +729,188 @@ registerTool(
         .number()
         .int()
         .min(1)
-        .describe("Stock quantity available for sale"),
+        .optional()
+        .describe("Stock quantity. Required when there are no variations (with variations each one has its own stock)"),
       condition: z
-        .enum(["new", "used"])
+        .enum(["new", "used", "not_specified"])
         .optional()
         .default("new")
-        .describe("Item condition: 'new' or 'used' (default 'new')"),
+        .describe("Item condition (default 'new')"),
       listing_type_id: z
         .string()
         .optional()
         .default("gold_special")
-        .describe("Exposure plan id from get_listing_types, e.g. 'gold_special' (Clássica, default) or 'gold_pro' (Premium)"),
+        .describe("'gold_special' (Clássico, default) or 'gold_pro' (Premium)"),
       buying_mode: z
         .string()
         .optional()
         .default("buy_it_now")
-        .describe("Buying mode; keep 'buy_it_now' unless the user explicitly wants auction"),
+        .describe("Keep 'buy_it_now' unless the user explicitly wants something else"),
       currency_id: z
         .string()
         .optional()
-        .describe("ISO currency of the price. Defaults to the site currency (BRL for MLB)"),
+        .describe("ISO currency. Defaults to the site currency (BRL for MLB)"),
       description: z
         .string()
-        .optional()
-        .describe("Plain-text listing description"),
+        .describe("Plain-text description (no HTML, no emojis). Required: listings without description lose quality"),
       pictures: z
         .array(z.string())
-        .optional()
-        .describe("Image URLs; Meli downloads them (pictures[].source). For local files, upload first with upload_picture"),
+        .min(1)
+        .describe("Pictures in display order: public image URLs and/or picture ids returned by upload_picture"),
       attributes: z
-        .array(
-          z.object({
-            id: z.string().describe("Attribute id, e.g. 'BRAND'"),
-            value_name: z
-              .string()
-              .describe("Attribute value as text, e.g. 'Apple'"),
-          })
-        )
+        .array(attributeInput)
         .optional()
-        .describe("Item attributes; MUST include all attributes marked required by get_category_attributes"),
+        .describe("Item attributes (características). Include every fillable attribute from get_category_attributes; use value_id for closed lists"),
+      seller_sku: z
+        .string()
+        .optional()
+        .describe("Your internal product code, saved as attribute SELLER_SKU (used by ERPs like UpSeller to link the listing)"),
+      seller_custom_field: z
+        .string()
+        .optional()
+        .describe("Free internal reference field (not the SKU)"),
+      ...warrantyShape,
+      variations: z
+        .array(variationInput)
+        .optional()
+        .describe("Variations (e.g. colors or sizes) when one listing sells several options"),
       video_id: z
         .string()
         .optional()
-        .describe("Id of a video previously uploaded to the seller's account"),
+        .describe("Video id from upload_video"),
       shipping: z
         .record(z.unknown())
         .optional()
-        .describe("Shipping options object, e.g. {free_shipping: true, mode: 'me2'}"),
+        .describe("Shipping object, e.g. {mode:'me2', free_shipping:true, local_pick_up:false}"),
+      tags: z
+        .array(z.string())
+        .optional()
+        .describe("Extra item tags, e.g. ['immediate_payment']"),
+      allow_missing_required: z
+        .boolean()
+        .optional()
+        .default(false)
+        .describe("Send even if required attributes are missing (default false: the tool stops and lists them)"),
+      check_quality: z
+        .boolean()
+        .optional()
+        .default(true)
+        .describe("Re-read the listing after publishing and report what is still empty (default true)"),
     },
   },
   async (input) => {
     try {
+      if (!input.title && !input.family_name) {
+        return fail(new Error("Provide title (or family_name)."));
+      }
+      if (!input.variations?.length && input.available_quantity === undefined) {
+        return fail(new Error("Provide available_quantity (or variations, each with its own stock)."));
+      }
+
+      const attributes = buildAttributes(input.attributes, input.seller_sku);
+      const categoryAttrs = await getCategoryAttributes(input.category_id);
+
+      // Check required attributes before sending, so Meli doesn't reject it.
+      const filled = new Set((attributes ?? []).map((a) => a.id));
+      for (const v of input.variations ?? []) {
+        for (const a of v.attribute_combinations) filled.add(a.id);
+        for (const a of v.attributes ?? []) filled.add(a.id);
+        if (v.seller_sku) filled.add("SELLER_SKU");
+      }
+      const missing = missingAttributes(categoryAttrs, filled, input.condition);
+      const missingRequired = missing.filter((m) => m.required);
+      if (missingRequired.length > 0 && !input.allow_missing_required) {
+        return fail(
+          new Error(
+            `Required attributes missing — nothing was published. Fill these and call again: ${missingRequired
+              .map((m) => `${m.id} (${m.name})`)
+              .join(", ")}`
+          )
+        );
+      }
+
+      // Classic listings use title; User Products accounts use family_name.
+      const useFamilyName = await isUserProductSeller();
       const body: Record<string, unknown> = {
-        title: input.title,
         category_id: input.category_id,
         price: input.price,
-        available_quantity: input.available_quantity,
         condition: input.condition,
         listing_type_id: input.listing_type_id,
         buying_mode: input.buying_mode,
-        currency_id:
-          input.currency_id ?? SITE_CURRENCY[config.siteId] ?? "BRL",
+        currency_id: input.currency_id ?? SITE_CURRENCY[config.siteId] ?? "BRL",
       };
-      if (input.description !== undefined) {
-        body.description = { plain_text: input.description };
+      if (useFamilyName) {
+        body.family_name = input.family_name ?? input.title;
+      } else {
+        const title = input.title ?? input.family_name ?? "";
+        const settings = await getCategorySettings(input.category_id);
+        const maxTitle = Number(settings.max_title_length ?? 60);
+        if (title.length > maxTitle) {
+          return fail(
+            new Error(`Title has ${title.length} characters; this category allows ${maxTitle}.`)
+          );
+        }
+        body.title = title;
       }
-      if (input.pictures !== undefined) {
-        body.pictures = input.pictures.map((url) => ({ source: url }));
+
+      let pictureList = [...input.pictures];
+      if (input.variations?.length) {
+        const built = buildVariations(input.variations, input.price);
+        body.variations = built.variations;
+        for (const p of built.extraPictures) if (!pictureList.includes(p)) pictureList.push(p);
+      } else {
+        body.available_quantity = input.available_quantity;
       }
-      if (input.attributes !== undefined) body.attributes = input.attributes;
+      body.pictures = toPictures(pictureList);
+      body.description = { plain_text: input.description };
+      if (attributes) body.attributes = attributes;
+      const saleTerms = buildSaleTerms(input);
+      if (saleTerms) body.sale_terms = saleTerms;
+      if (input.seller_custom_field !== undefined) body.seller_custom_field = input.seller_custom_field;
       if (input.video_id !== undefined) body.video_id = input.video_id;
       if (input.shipping !== undefined) body.shipping = input.shipping;
+      if (input.tags !== undefined) body.tags = input.tags;
 
       const created = await meliPost<Record<string, unknown>>("/items", body);
-      return ok({
-        id: created.id,
+      const itemId = String(created.id);
+
+      // Some accounts ignore the inline description; make sure it is there.
+      const followUps: string[] = [];
+      try {
+        const d = await meliGet<{ plain_text?: string }>(`/items/${itemId}/description`);
+        if (!(d.plain_text ?? "").trim()) {
+          await meliPut(`/items/${itemId}/description`, { plain_text: input.description }, { api_version: 2 });
+          followUps.push("description re-sent");
+        }
+      } catch (err) {
+        if (err instanceof MeliApiError && err.status === 404) {
+          await meliPost(`/items/${itemId}/description`, { plain_text: input.description });
+          followUps.push("description created");
+        } else {
+          followUps.push(`description check failed: ${(err as Error).message}`);
+        }
+      }
+
+      const result: Record<string, unknown> = {
+        id: itemId,
         title: created.title,
+        family_name: created.family_name,
         status: created.status,
         permalink: created.permalink,
+        listing_model: useFamilyName ? "user_products (family_name)" : "classic (title)",
         warnings: created.warnings ?? [],
-      });
+        follow_ups: followUps,
+      };
+      if (input.check_quality) {
+        try {
+          result.quality = await checkListingQuality(itemId);
+        } catch (err) {
+          result.quality = `quality check failed: ${(err as Error).message}`;
+        }
+      } else if (missing.length > 0) {
+        result.empty_attributes = missing;
+      }
+      return ok(result);
     } catch (err) {
       return fail(err);
     }
@@ -672,7 +921,7 @@ registerTool(
   "update_item",
   {
     description:
-      "Update mutable fields of an existing listing owned by the authenticated seller: price, stock (available_quantity), title or video. Use this for price changes and stock adjustments; to change visibility (pause/activate/close) use update_item_status instead. Only the provided fields are sent. Gotcha: the title can only be changed while the item has no sales — once units are sold, Meli rejects title updates. Returns the updated item id, price, available_quantity and status.",
+      "Edit ANY editable part of an existing listing: price, stock, title/family_name, description, pictures, attributes, SKU, warranty and other sale terms, shipping, variations, video and listing type (Clássico→Premium). Only the fields you pass are changed. Notes: title/family_name can only change while the item has no sales; pictures REPLACE the current set unless append_pictures=true; listing type can usually be changed only once; category cannot be changed. Each part is applied separately and the result says which parts succeeded. Ends with a quality report of what is still empty.",
     inputSchema: {
       item_id: z
         .string()
@@ -683,40 +932,187 @@ registerTool(
         .int()
         .min(0)
         .optional()
-        .describe("New stock quantity"),
+        .describe("New stock quantity (items without variations)"),
       title: z
         .string()
-        .max(60)
+        .max(120)
         .optional()
-        .describe("New title (max 60 chars); only allowed while the item has no sales"),
+        .describe("New title; on User Products listings it is applied as family_name. Only while the item has no sales"),
+      family_name: z
+        .string()
+        .max(120)
+        .optional()
+        .describe("New family_name (User Products listings). Only while there are no sales"),
+      description: z
+        .string()
+        .optional()
+        .describe("New plain-text description (replaces the current one)"),
+      pictures: z
+        .array(z.string())
+        .optional()
+        .describe("Pictures (public URLs or ids from upload_picture). Replaces the current pictures unless append_pictures=true"),
+      append_pictures: z
+        .boolean()
+        .optional()
+        .default(false)
+        .describe("Keep the current pictures and add these after them"),
+      attributes: z
+        .array(attributeInput)
+        .optional()
+        .describe("Attributes to set or change; attributes not listed are kept"),
+      seller_sku: z.string().optional().describe("Set the SKU (SELLER_SKU attribute)"),
+      seller_custom_field: z.string().optional().describe("Free internal reference field"),
+      ...warrantyShape,
+      shipping: z
+        .record(z.unknown())
+        .optional()
+        .describe("Shipping object, e.g. {free_shipping:true}"),
+      variations: z
+        .array(z.record(z.unknown()))
+        .optional()
+        .describe("Full variations array as Meli expects it. Existing variations must keep their 'id'; omitted ones are deleted. Read get_item first"),
       video_id: z
         .string()
         .optional()
-        .describe("Id of a video previously uploaded to the seller's account"),
+        .describe("Video id from upload_video"),
+      listing_type_id: z
+        .string()
+        .optional()
+        .describe("Change exposure: 'gold_special' (Clássico) or 'gold_pro' (Premium)"),
+      check_quality: z
+        .boolean()
+        .optional()
+        .default(true)
+        .describe("Report what is still empty after the update (default true)"),
     },
   },
-  async ({ item_id, price, available_quantity, title, video_id }) => {
+  async (input) => {
+    const { item_id } = input;
+    const applied: string[] = [];
+    const errors: string[] = [];
+    const step = async (name: string, fn: () => Promise<unknown>) => {
+      try {
+        await fn();
+        applied.push(name);
+      } catch (err) {
+        let msg = (err as Error).message;
+        if (err instanceof MeliApiError && err.details !== undefined) {
+          msg += ` | ${JSON.stringify(err.details)}`;
+        }
+        errors.push(`${name}: ${msg}`);
+      }
+    };
+
     try {
+      const current = await meliGet<Record<string, unknown>>(`/items/${item_id}`);
+      const isUP = isUserProductItem(current);
+
+      // 1) Fields that go in PUT /items/{id}
       const body: Record<string, unknown> = {};
-      if (price !== undefined) body.price = price;
-      if (available_quantity !== undefined)
-        body.available_quantity = available_quantity;
-      if (title !== undefined) body.title = title;
-      if (video_id !== undefined) body.video_id = video_id;
-      if (Object.keys(body).length === 0) {
+      if (input.price !== undefined) body.price = input.price;
+      if (input.available_quantity !== undefined) body.available_quantity = input.available_quantity;
+      if (input.title !== undefined && !isUP) body.title = input.title;
+      if (input.video_id !== undefined) body.video_id = input.video_id;
+      if (input.shipping !== undefined) body.shipping = input.shipping;
+      if (input.variations !== undefined) body.variations = input.variations;
+      if (input.seller_custom_field !== undefined) body.seller_custom_field = input.seller_custom_field;
+
+      const attributes = buildAttributes(input.attributes, input.seller_sku);
+      if (attributes) body.attributes = attributes;
+
+      const saleTerms = buildSaleTerms(
+        input,
+        (current.sale_terms as Array<Record<string, unknown>>) ?? []
+      );
+      if (saleTerms) body.sale_terms = saleTerms;
+
+      if (input.pictures !== undefined) {
+        const existing = input.append_pictures
+          ? ((current.pictures as Array<{ id?: string }>) ?? [])
+              .map((p) => p.id)
+              .filter((id): id is string => Boolean(id))
+          : [];
+        body.pictures = [...existing.map((id) => ({ id })), ...toPictures(input.pictures)];
+      }
+
+      if (Object.keys(body).length > 0) {
+        await step(`item fields (${Object.keys(body).join(", ")})`, () =>
+          meliPut(`/items/${item_id}`, body)
+        );
+      }
+
+      // 2) family_name (User Products) — also used for title on UP listings
+      const familyName = input.family_name ?? (isUP ? input.title : undefined);
+      if (familyName !== undefined) {
+        await step("family_name", () =>
+          meliPut(`/items/${item_id}/family_name`, { family_name: familyName })
+        );
+      }
+
+      // 3) Description has its own endpoint
+      if (input.description !== undefined) {
+        await step("description", async () => {
+          try {
+            await meliPut(
+              `/items/${item_id}/description`,
+              { plain_text: input.description },
+              { api_version: 2 }
+            );
+          } catch (err) {
+            if (err instanceof MeliApiError && (err.status === 404 || err.status === 400)) {
+              await meliPost(`/items/${item_id}/description`, { plain_text: input.description });
+            } else {
+              throw err;
+            }
+          }
+        });
+      }
+
+      // 4) Listing type has its own endpoint
+      if (
+        input.listing_type_id !== undefined &&
+        input.listing_type_id !== current.listing_type_id
+      ) {
+        await step("listing_type", () =>
+          meliPost(`/items/${item_id}/listing_type`, { id: input.listing_type_id })
+        );
+      }
+
+      if (applied.length === 0 && errors.length === 0) {
         return fail(new Error("Provide at least one field to update."));
       }
-      const updated = await meliPut<Record<string, unknown>>(
-        `/items/${item_id}`,
-        body
-      );
-      return ok({
-        id: updated.id,
-        title: updated.title,
-        price: updated.price,
-        available_quantity: updated.available_quantity,
-        status: updated.status,
-      });
+
+      const result: Record<string, unknown> = { id: item_id, applied, errors };
+      if (input.check_quality) {
+        try {
+          result.quality = await checkListingQuality(item_id);
+        } catch (err) {
+          result.quality = `quality check failed: ${(err as Error).message}`;
+        }
+      }
+      return errors.length > 0 && applied.length === 0
+        ? { ...ok(result), isError: true }
+        : ok(result);
+    } catch (err) {
+      return fail(err);
+    }
+  }
+);
+
+registerTool(
+  "check_listing_quality",
+  {
+    description:
+      "Check what is still missing on a listing: description, pictures, warranty, SKU, required and optional attributes (características), plus Meli's own health score when available. Use it after creating or editing, or to audit existing listings. Returns complete=true only when nothing is empty.",
+    inputSchema: {
+      item_id: z
+        .string()
+        .describe("Item id with site prefix, e.g. 'MLB123456789'"),
+    },
+  },
+  async ({ item_id }) => {
+    try {
+      return ok(await checkListingQuality(item_id));
     } catch (err) {
       return fail(err);
     }
