@@ -60,7 +60,11 @@ export function credentialsFile(): string {
   return path.join(path.dirname(resolveTokensFile()), "credentials.json");
 }
 
-function readSavedCredentials(): { client_id?: string; client_secret?: string } {
+function readSavedCredentials(): {
+  client_id?: string;
+  client_secret?: string;
+  redirect_uri?: string;
+} {
   try {
     return JSON.parse(fs.readFileSync(credentialsFile(), "utf8"));
   } catch {
@@ -68,15 +72,27 @@ function readSavedCredentials(): { client_id?: string; client_secret?: string } 
   }
 }
 
-export function saveCredentials(clientId: string, clientSecret: string): void {
+export function saveCredentials(
+  clientId: string,
+  clientSecret: string,
+  redirectUri: string
+): void {
   const file = credentialsFile();
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(
     file,
-    JSON.stringify({ client_id: clientId, client_secret: clientSecret }, null, 2),
+    JSON.stringify(
+      { client_id: clientId, client_secret: clientSecret, redirect_uri: redirectUri },
+      null,
+      2
+    ),
     { mode: 0o600 }
   );
 }
+
+// Meli only accepts HTTPS redirect URIs, so by default the browser lands on a
+// page that doesn't load and the user pastes its address back (see auth-flow).
+export const DEFAULT_REDIRECT_URI = "https://localhost/callback";
 
 // Empty or unresolved placeholders (e.g. "${user_config.x}") count as unset.
 function envValue(name: string): string {
@@ -92,7 +108,14 @@ export const config = {
     return envValue("ML_CLIENT_SECRET") || (readSavedCredentials().client_secret ?? "");
   },
   siteId: process.env.ML_SITE_ID ?? "MLB",
-  redirectUri: process.env.ML_REDIRECT_URI ?? "http://localhost:3333/callback",
+  get redirectUri(): string {
+    return (
+      envValue("ML_REDIRECT_URI") ||
+      readSavedCredentials().redirect_uri ||
+      DEFAULT_REDIRECT_URI
+    );
+  },
+  setupPort: Number(process.env.ML_SETUP_PORT ?? 3333),
   tokensFile: resolveTokensFile(),
   readOnly: ["true", "1"].includes(
     (process.env.ML_READ_ONLY ?? "").toLowerCase()

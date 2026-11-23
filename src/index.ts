@@ -136,7 +136,7 @@ registerTool(
   "connect_account",
   {
     description:
-      "Connect (or reconnect) the seller's Mercado Livre account. Opens a page in the user's browser — the first time, a local form where the user types the App ID and Client Secret (never ask for them in the chat); then the Mercado Livre authorization page — and waits up to 3 minutes for them to finish; tokens are then saved and renewed automatically. Use it on first use, or whenever another tool says the account is not connected. Tell the user to look at the browser window that opened.",
+      "Connect (or reconnect) the seller's Mercado Livre account. Opens a page in the user's browser — the first time, a local form where the user types the App ID and Client Secret (never ask for them in the chat); then the Mercado Livre authorization page; Meli only accepts https return addresses, so after allowing, the user pastes the address of the page that didn't load into the local page — and waits up to 10 minutes. Tell the user to follow the steps on the page that opened; tokens are then saved and renewed automatically. Use it on first use, or whenever another tool says the account is not connected. Tell the user to look at the browser window that opened.",
     inputSchema: {
       force: z
         .boolean()
