@@ -21490,15 +21490,20 @@ function readSavedCredentials() {
     return {};
   }
 }
-function saveCredentials(clientId, clientSecret) {
+function saveCredentials(clientId, clientSecret, redirectUri) {
   const file = credentialsFile();
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(
     file,
-    JSON.stringify({ client_id: clientId, client_secret: clientSecret }, null, 2),
+    JSON.stringify(
+      { client_id: clientId, client_secret: clientSecret, redirect_uri: redirectUri },
+      null,
+      2
+    ),
     { mode: 384 }
   );
 }
+var DEFAULT_REDIRECT_URI = "https://localhost/callback";
 function envValue(name) {
   const v = (process.env[name] ?? "").trim();
   return v.startsWith("${") ? "" : v;
@@ -21511,7 +21516,10 @@ var config2 = {
     return envValue("ML_CLIENT_SECRET") || (readSavedCredentials().client_secret ?? "");
   },
   siteId: process.env.ML_SITE_ID ?? "MLB",
-  redirectUri: process.env.ML_REDIRECT_URI ?? "http://localhost:3333/callback",
+  get redirectUri() {
+    return envValue("ML_REDIRECT_URI") || readSavedCredentials().redirect_uri || DEFAULT_REDIRECT_URI;
+  },
+  setupPort: Number(process.env.ML_SETUP_PORT ?? 3333),
   tokensFile: resolveTokensFile(),
   readOnly: ["true", "1"].includes(
     (process.env.ML_READ_ONLY ?? "").toLowerCase()
@@ -21843,112 +21851,191 @@ function openInBrowser(url) {
   } catch {
   }
 }
+function extractCode(input) {
+  const text = input.trim();
+  if (!text) return null;
+  try {
+    const url = new URL(text);
+    return url.searchParams.get("code");
+  } catch {
+    const m = text.match(/[?&]code=([^&\s#]+)/);
+    if (m) return decodeURIComponent(m[1]);
+    return /^[\w-]{10,}$/.test(text) ? text : null;
+  }
+}
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+}
+function readBody(req) {
+  return new Promise((resolve, reject) => {
+    let raw = "";
+    req.on("data", (c) => {
+      raw += c;
+      if (raw.length > 2e4) {
+        req.destroy();
+        reject(new Error("body too large"));
+      }
+    });
+    req.on("end", () => resolve(new URLSearchParams(raw)));
+    req.on("error", reject);
+  });
+}
 function runAuthFlow(options = {}) {
-  const { timeoutMs = 18e4, openBrowser = true, log = () => {
+  const { timeoutMs = 6e5, openBrowser = true, log = () => {
   } } = options;
-  const callbackUrl = new URL(config2.redirectUri);
-  const port = Number(callbackUrl.port) || 3333;
-  const callbackPath = callbackUrl.pathname || "/callback";
-  const setupUrl = `http://localhost:${port}/setup`;
+  const port = config2.setupPort;
+  const base = `http://localhost:${port}`;
   const needsSetup = !config2.clientId || !config2.clientSecret;
-  const authUrl = needsSetup ? setupUrl : buildAuthUrl();
+  const startUrl = needsSetup ? `${base}/setup` : `${base}/authorize`;
+  let directCallbackPath = null;
+  try {
+    const r = new URL(config2.redirectUri);
+    if (r.protocol === "http:" && ["localhost", "127.0.0.1"].includes(r.hostname) && Number(r.port || 80) === port) {
+      directCallbackPath = r.pathname || "/callback";
+    }
+  } catch {
+  }
   return new Promise((resolve) => {
     let settled = false;
     const finish = (result) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      server2.close();
+      setTimeout(() => server2.close(), 500);
       resolve(result);
     };
-    const server2 = http.createServer((req, res) => {
-      const url = new URL(req.url ?? "/", `http://localhost:${port}`);
-      if (url.pathname === "/setup" && req.method === "GET") {
-        res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-        res.end(SETUP_PAGE(config2.redirectUri));
-        return;
-      }
-      if (url.pathname === "/setup" && req.method === "POST") {
-        let raw = "";
-        req.on("data", (c) => {
-          raw += c;
-          if (raw.length > 1e4) req.destroy();
-        });
-        req.on("end", () => {
-          const form = new URLSearchParams(raw);
+    const html = (res, status, body) => {
+      res.writeHead(status, { "Content-Type": "text/html; charset=utf-8" });
+      res.end(PAGE(body));
+    };
+    const exchange = (code, res) => {
+      exchangeCodeForTokens(code).then(() => {
+        html(res, 200, "<h1>Conta conectada!</h1><p>Pode fechar esta aba e voltar ao Claude.</p>");
+        finish({ ok: true, authUrl: startUrl, message: `Account connected. Tokens saved to ${config2.tokensFile}` });
+      }).catch((err) => {
+        html(
+          res,
+          500,
+          `<h1>N\xE3o deu certo</h1><p>${escapeHtml(err.message)}</p>
+<p>Confira se o App ID, o Client Secret e o endere\xE7o de retorno s\xE3o os mesmos da aplica\xE7\xE3o no DevCenter.
+O c\xF3digo vale poucos minutos: <a href="/setup">corrigir os dados</a> ou <a href="/authorize">autorizar de novo</a>.</p>`
+        );
+      });
+    };
+    const server2 = http.createServer(async (req, res) => {
+      try {
+        const url = new URL(req.url ?? "/", base);
+        if (url.pathname === "/setup" && req.method === "GET") {
+          html(res, 200, SETUP_FORM(config2.clientId, config2.redirectUri));
+          return;
+        }
+        if (url.pathname === "/setup" && req.method === "POST") {
+          const form = await readBody(req);
           const id = (form.get("client_id") ?? "").trim();
-          const secret = (form.get("client_secret") ?? "").trim();
-          if (!/^\d+$/.test(id) || secret.length < 10) {
-            res.writeHead(400, { "Content-Type": "text/html; charset=utf-8" });
-            res.end("<p>App ID deve ter s\xF3 n\xFAmeros e o Client Secret n\xE3o pode ficar vazio. <a href='/setup'>Voltar</a></p>");
+          const secret = (form.get("client_secret") ?? "").trim() || config2.clientSecret;
+          const redirect = (form.get("redirect_uri") ?? "").trim() || DEFAULT_REDIRECT_URI;
+          if (!/^\d+$/.test(id) || secret.length < 10 || !/^https?:\/\//.test(redirect)) {
+            html(res, 400, `<p>Confira os dados: o App ID tem s\xF3 n\xFAmeros, o Client Secret n\xE3o pode ficar vazio e o endere\xE7o de retorno come\xE7a com https://. <a href="/setup">Voltar</a></p>`);
             return;
           }
-          saveCredentials(id, secret);
-          res.writeHead(302, { Location: buildAuthUrl() });
+          saveCredentials(id, secret, redirect);
+          res.writeHead(303, { Location: "/authorize" });
           res.end();
-        });
-        return;
-      }
-      if (url.pathname !== callbackPath) {
+          return;
+        }
+        if (url.pathname === "/authorize" && req.method === "GET") {
+          if (!config2.clientId || !config2.clientSecret) {
+            res.writeHead(303, { Location: "/setup" });
+            res.end();
+            return;
+          }
+          html(res, 200, AUTHORIZE_PAGE(buildAuthUrl(), Boolean(directCallbackPath)));
+          return;
+        }
+        if (url.pathname === "/code" && req.method === "POST") {
+          const form = await readBody(req);
+          const code = extractCode(form.get("address") ?? "");
+          if (!code) {
+            html(res, 400, `<p>N\xE3o achei o c\xF3digo nesse endere\xE7o. Ele aparece depois de <code>?code=</code>. <a href="/authorize">Tentar de novo</a></p>`);
+            return;
+          }
+          exchange(code, res);
+          return;
+        }
+        if (directCallbackPath && url.pathname === directCallbackPath) {
+          const code = url.searchParams.get("code");
+          if (code) {
+            exchange(code, res);
+            return;
+          }
+        }
+        if (url.pathname === "/") {
+          res.writeHead(303, { Location: needsSetup ? "/setup" : "/authorize" });
+          res.end();
+          return;
+        }
         res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
         res.end("Not found");
-        return;
+      } catch (err) {
+        html(res, 500, `<p>Erro: ${escapeHtml(err.message)}</p>`);
       }
-      const code = url.searchParams.get("code");
-      if (!code) {
-        res.writeHead(400, { "Content-Type": "text/plain; charset=utf-8" });
-        res.end("Missing 'code' query parameter.");
-        return;
-      }
-      exchangeCodeForTokens(code).then(() => {
-        res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-        res.end(
-          "<h1>Conta conectada!</h1><p>Pode fechar esta aba e voltar ao Claude.</p>"
-        );
-        finish({ ok: true, authUrl, message: `Account connected. Tokens saved to ${config2.tokensFile}` });
-      }).catch((err) => {
-        res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
-        res.end(`Falha ao conectar: ${err.message}`);
-        finish({ ok: false, authUrl, message: `Token exchange failed: ${err.message}` });
-      });
     });
     server2.on("error", (err) => {
       finish({
         ok: false,
-        authUrl,
+        authUrl: startUrl,
         message: `Could not listen on port ${port}: ${err.message}`
       });
     });
     const timer = setTimeout(() => {
       finish({
         ok: false,
-        authUrl,
-        message: "Timed out waiting for the authorization in the browser. Call it again."
+        authUrl: startUrl,
+        message: "Timed out waiting for the authorization in the browser (10 minutes). Call it again."
       });
     }, timeoutMs);
-    server2.listen(port, () => {
-      log(`Listening for the OAuth callback on ${config2.redirectUri}`);
-      log(`Open this URL to authorize:
+    server2.listen(port, "127.0.0.1", () => {
+      log(`Open this page to connect the account:
 
-${authUrl}
+${startUrl}
 `);
-      if (openBrowser) openInBrowser(authUrl);
+      if (openBrowser) openInBrowser(startUrl);
     });
   });
 }
-var SETUP_PAGE = (redirectUri) => `<!doctype html>
+var PAGE = (body) => `<!doctype html>
 <html lang="pt-BR"><head><meta charset="utf-8"><title>Conectar Mercado Livre</title>
-<style>body{font-family:system-ui,sans-serif;max-width:520px;margin:48px auto;padding:0 16px;color:#222}
-label{display:block;margin:16px 0 6px;font-weight:600}input{width:100%;padding:10px;font-size:16px;box-sizing:border-box}
-button{margin-top:20px;padding:12px 20px;font-size:16px;background:#3483fa;color:#fff;border:0;border-radius:6px;cursor:pointer}
-.box{background:#f5f5f5;padding:12px;border-radius:6px;font-size:14px}code{background:#eee;padding:2px 4px}</style></head>
-<body><h1>Conectar a conta do Mercado Livre</h1>
-<p class="box">Os dados ficam s\xF3 neste computador. No aplicativo criado em
-developers.mercadolivre.com.br, a Redirect URI precisa ser exatamente <code>${redirectUri}</code>.</p>
+<style>body{font-family:system-ui,sans-serif;max-width:600px;margin:40px auto;padding:0 16px;color:#222;line-height:1.5}
+label{display:block;margin:16px 0 6px;font-weight:600}input,textarea{width:100%;padding:10px;font-size:15px;box-sizing:border-box}
+button,.btn{display:inline-block;margin-top:16px;padding:12px 20px;font-size:16px;background:#3483fa;color:#fff;border:0;border-radius:6px;cursor:pointer;text-decoration:none}
+.box{background:#f5f5f5;padding:12px;border-radius:6px;font-size:14px}code{background:#eee;padding:2px 4px}ol li{margin-bottom:10px}</style></head>
+<body>${body}</body></html>`;
+var SETUP_FORM = (clientId, redirectUri) => `
+<h1>Conectar a conta do Mercado Livre</h1>
+<p class="box">Os dados ficam s\xF3 neste computador. Pegue-os no DevCenter
+(developers.mercadolivre.com.br/devcenter), na sua aplica\xE7\xE3o.</p>
 <form method="post" action="/setup">
-<label for="id">App ID</label><input id="id" name="client_id" inputmode="numeric" required autocomplete="off">
-<label for="sec">Client Secret</label><input id="sec" name="client_secret" type="password" required autocomplete="off">
-<button type="submit">Salvar e autorizar no Mercado Livre</button></form></body></html>`;
+<label for="id">App ID (Client ID)</label>
+<input id="id" name="client_id" inputmode="numeric" required autocomplete="off" value="${escapeHtml(clientId)}">
+<label for="sec">Client Secret (chave secreta)</label>
+<input id="sec" name="client_secret" type="password" autocomplete="off" ${clientId ? 'placeholder="deixe vazio para manter a atual"' : "required"}>
+<label for="uri">Endere\xE7o de retorno (Redirect URI)</label>
+<input id="uri" name="redirect_uri" required autocomplete="off" value="${escapeHtml(redirectUri)}">
+<p class="box">Precisa ser <b>exatamente igual</b> a um dos endere\xE7os de retorno cadastrados na aplica\xE7\xE3o.
+Se for cadastrar um novo, use <code>${DEFAULT_REDIRECT_URI}</code>.</p>
+<button type="submit">Salvar e continuar</button></form>`;
+var AUTHORIZE_PAGE = (authUrl, automatic) => `
+<h1>Autorizar no Mercado Livre</h1>
+<ol>
+<li><a class="btn" href="${escapeHtml(authUrl)}" target="_blank" rel="noopener">Abrir o Mercado Livre e autorizar</a><br>
+Entre com a conta da loja e clique em <b>Permitir</b>.</li>
+${automatic ? "<li>Pronto: esta p\xE1gina recebe a autoriza\xE7\xE3o sozinha.</li>" : `<li>Depois de permitir, vai abrir uma p\xE1gina que <b>n\xE3o carrega</b> (\u201Cn\xE3o \xE9 poss\xEDvel acessar esse site\u201D). Isso \xE9 normal.</li>
+<li>Copie o <b>endere\xE7o completo</b> dessa p\xE1gina (a barra l\xE1 em cima, come\xE7a com <code>https://localhost</code>) e cole aqui:
+<form method="post" action="/code">
+<textarea name="address" rows="3" required placeholder="https://localhost/callback?code=..."></textarea>
+<button type="submit">Conectar</button></form></li>`}
+</ol>
+<p><a href="/setup">Corrigir App ID / Client Secret / endere\xE7o de retorno</a></p>`;
 
 // src/listing.ts
 var attributeInput = external_exports.object({
@@ -22264,7 +22351,7 @@ async function getMyUserId() {
 registerTool(
   "connect_account",
   {
-    description: "Connect (or reconnect) the seller's Mercado Livre account. Opens a page in the user's browser \u2014 the first time, a local form where the user types the App ID and Client Secret (never ask for them in the chat); then the Mercado Livre authorization page \u2014 and waits up to 3 minutes for them to finish; tokens are then saved and renewed automatically. Use it on first use, or whenever another tool says the account is not connected. Tell the user to look at the browser window that opened.",
+    description: "Connect (or reconnect) the seller's Mercado Livre account. Opens a page in the user's browser \u2014 the first time, a local form where the user types the App ID and Client Secret (never ask for them in the chat); then the Mercado Livre authorization page; Meli only accepts https return addresses, so after allowing, the user pastes the address of the page that didn't load into the local page \u2014 and waits up to 10 minutes. Tell the user to follow the steps on the page that opened; tokens are then saved and renewed automatically. Use it on first use, or whenever another tool says the account is not connected. Tell the user to look at the browser window that opened.",
     inputSchema: {
       force: external_exports.boolean().optional().default(false).describe("Reconnect even if an account is already connected")
     }

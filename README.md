@@ -1,6 +1,6 @@
 # Versão JadyponHidro (fork)
 
-Este fork é também um **marketplace de plugins do Claude**. No Claude, em *Adicionar marketplace*, cole `https://github.com/jadypon-web/mcp_mercadolivre`, sincronize e instale o plugin **mercadolivre**. Depois, peça ao Claude para conectar a conta (`connect_account`): abre no navegador uma página local para digitar o *App ID* e o *Client Secret* (ficam só no seu computador) e em seguida a autorização do Mercado Livre. Precisa do Node.js 18+ instalado. Não precisa rodar `npm install` nem `npm run build`: o servidor já vem montado em `plugin/server/index.mjs`.
+Este fork é também um **marketplace de plugins do Claude**. No Claude, em *Adicionar marketplace*, cole `https://github.com/jadypon-web/mcp_mercadolivre`, sincronize e instale o plugin **mercadolivre**. Depois, peça ao Claude para conectar a conta (`connect_account`): abre no navegador uma página local para digitar o *App ID*, o *Client Secret* e o endereço de retorno (ficam só no seu computador). Como o Mercado Livre só aceita endereço de retorno com https, o padrão é `https://localhost/callback` (cadastre-o na aplicação): depois de autorizar, cole na página local o endereço da página que não carregou. Precisa do Node.js 18+ instalado. Não precisa rodar `npm install` nem `npm run build`: o servidor já vem montado em `plugin/server/index.mjs`.
 
 Mudanças em relação ao original:
 
