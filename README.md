@@ -8,6 +8,9 @@ Mudanças em relação ao original:
 - **update_item edita tudo**: descrição, fotos (substituir ou acrescentar), características, SKU, garantia, frete, variações, tipo de anúncio (Clássico/Premium) e `family_name`.
 - **get_category_attributes**: mostra todas as características (não corta em 50 opções), as obrigatórias condicionais, unidades aceitas, filtro de opções, termos de venda da categoria e limite do título.
 - **Novas ferramentas**: `check_listing_quality` (o que falta num anúncio) e `connect_account` (conecta a conta pelo navegador, sem terminal).
+- **Flex e atacado**: `flex` e `wholesale` no `create_item`/`update_item`, e as ferramentas `set_flex` e `set_wholesale_prices` (até 5 faixas, por preço ou % de desconto).
+- **Menos tokens**: respostas em JSON compacto, listas de opções curtas por padrão (use `value_filter`) e relatório de qualidade enxuto.
+- **Extensão do Claude Desktop**: `mercadolivre-jadypon.mcpb` (gerada com `npx @anthropic-ai/mcpb pack`), instalável com dois cliques.
 - Correção: abrir o navegador no Windows na autorização.
 - Skill `anunciar-mercado-livre` com o padrão de anúncios da JadyponHidro.
 

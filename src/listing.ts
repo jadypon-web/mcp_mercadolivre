@@ -1,7 +1,7 @@
 // Helpers for building complete listings (create_item / update_item) and for
 // checking what is still missing on a listing after it is published.
 import { z } from "zod";
-import { MeliApiError, meliGet } from "./meli-client.js";
+import { MeliApiError, meliDelete, meliGet, meliPost } from "./meli-client.js";
 
 // ---------------------------------------------------------------------------
 // Shared input schemas
@@ -304,6 +304,7 @@ export interface QualityReport {
   problems: string[];
   missing_required_attributes: MissingAttribute[];
   empty_optional_attributes: MissingAttribute[];
+  flex?: boolean;
   meli_warnings: unknown[];
 }
 
@@ -382,10 +383,18 @@ export async function checkListingQuality(itemId: string): Promise<QualityReport
 
   let health: unknown;
   try {
-    health = await meliGet<unknown>(`/items/${itemId}/health`);
+    const h = await meliGet<Record<string, unknown>>(`/items/${itemId}/health`);
+    health = h.health ?? h.level ?? undefined;
   } catch {
     health = undefined;
   }
+
+  const tags = Array.isArray(item.tags) ? (item.tags as string[]) : [];
+  const flex = tags.includes("self_service_in")
+    ? true
+    : tags.includes("self_service_out")
+      ? false
+      : undefined;
 
   return {
     item_id: itemId,
@@ -396,6 +405,123 @@ export async function checkListingQuality(itemId: string): Promise<QualityReport
     problems,
     missing_required_attributes: missingRequired,
     empty_optional_attributes: emptyOptional,
+    flex,
     meli_warnings: Array.isArray(item.warnings) ? item.warnings : [],
   };
+}
+
+// ---------------------------------------------------------------------------
+// Envios Flex (same-day delivery by the seller) per item
+// ---------------------------------------------------------------------------
+
+export async function setFlex(
+  siteId: string,
+  itemId: string,
+  enabled: boolean
+): Promise<{ flex: boolean; note?: string }> {
+  const path = `/flex/sites/${siteId}/items/${itemId}/v2`;
+  if (enabled) await meliPost(path);
+  else await meliDelete(path);
+  return { flex: enabled };
+}
+
+export async function getFlex(siteId: string, itemId: string): Promise<unknown> {
+  try {
+    return await meliGet<unknown>(`/flex/sites/${siteId}/items/${itemId}/v2`);
+  } catch (err) {
+    if (err instanceof MeliApiError && err.status === 404) return { flex: false };
+    throw err;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Wholesale prices (preço por quantidade / atacado, B2B buyers)
+// ---------------------------------------------------------------------------
+
+export const wholesaleTierInput = z
+  .object({
+    min_quantity: z
+      .number()
+      .int()
+      .min(2)
+      .describe("Minimum units for this price, e.g. 3"),
+    price: z
+      .number()
+      .positive()
+      .optional()
+      .describe("Unit price from this quantity on"),
+    discount_percent: z
+      .number()
+      .gt(0)
+      .lt(100)
+      .optional()
+      .describe("Or a % off the item's regular price, e.g. 5 for 5%"),
+  })
+  .refine((t) => (t.price === undefined) !== (t.discount_percent === undefined), {
+    message: "Each tier needs exactly one of price or discount_percent",
+  });
+
+export type WholesaleTier = z.infer<typeof wholesaleTierInput>;
+
+interface PriceNode {
+  id?: string;
+  type?: string;
+  amount?: number;
+  currency_id?: string;
+  conditions?: { context_restrictions?: string[]; min_purchase_unit?: number };
+}
+
+// Replaces the item's wholesale table. Meli deletes any existing standard
+// price node whose id is not sent, so the regular (non-quantity) standard
+// prices are always sent back by id. An empty tier list removes the table.
+export async function setWholesalePrices(
+  itemId: string,
+  tiers: WholesaleTier[]
+): Promise<{ base_price: number; tiers: Array<{ min_quantity: number; price: number }> }> {
+  if (tiers.length > 5) throw new Error("Meli allows at most 5 wholesale prices per item.");
+  const current = await meliGet<{ prices?: PriceNode[] }>(`/items/${itemId}/prices`);
+  const standard = (current.prices ?? []).filter((p) => p.type === "standard");
+  const regular = standard.filter((p) => !p.conditions?.min_purchase_unit);
+  const base = regular.find((p) => !(p.conditions?.context_restrictions ?? []).length) ?? regular[0];
+  if (!base?.amount) throw new Error("Could not read the item's regular price.");
+  const currency = base.currency_id ?? "BRL";
+
+  const computed = tiers
+    .map((t) => ({
+      min_quantity: t.min_quantity,
+      price:
+        t.price ??
+        Math.floor(base.amount! * (1 - (t.discount_percent ?? 0) / 100) * 100) / 100,
+    }))
+    .sort((a, b) => a.min_quantity - b.min_quantity);
+
+  const seen = new Set<number>();
+  let last = base.amount;
+  for (const t of computed) {
+    if (seen.has(t.min_quantity)) throw new Error(`Repeated min_quantity ${t.min_quantity}.`);
+    seen.add(t.min_quantity);
+    if (t.price >= last) {
+      throw new Error(
+        `Wholesale price for ${t.min_quantity}+ units (${t.price}) must be lower than the previous price (${last}).`
+      );
+    }
+    last = t.price;
+  }
+
+  const body = {
+    prices: [
+      ...regular.filter((p) => p.id).map((p) => ({ id: p.id })),
+      ...computed.map((t) => ({
+        type: "standard",
+        amount: t.price,
+        currency_id: currency,
+        conditions: {
+          context_restrictions: ["channel_marketplace", "user_type_business"],
+          min_purchase_unit: t.min_quantity,
+        },
+      })),
+    ],
+  };
+  await meliPost(`/items/${itemId}/prices/standard/quantity`, body);
+  return { base_price: base.amount, tiers: computed };
 }

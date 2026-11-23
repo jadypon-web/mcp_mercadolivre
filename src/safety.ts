@@ -47,9 +47,13 @@ export const ALL_TOOLS: readonly string[] = [
   "get_warehouses",
   "check_listing_quality",
   "connect_account",
+  "set_flex",
+  "set_wholesale_prices",
 ];
 
 export const WRITE_TOOLS: Set<string> = new Set([
+  "set_flex",
+  "set_wholesale_prices",
   "create_item",
   "upload_picture",
   "upload_video",
@@ -82,6 +86,8 @@ export const PROFILES: Record<string, Set<string>> = {
     "update_item",
     "update_item_status",
     "create_catalog_listing",
+    "set_flex",
+    "set_wholesale_prices",
   ]),
   all: new Set(ALL_TOOLS),
 };

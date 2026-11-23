@@ -33,6 +33,10 @@ import {
   checkListingQuality,
   getCategoryAttributes,
   getCategorySettings,
+  getFlex,
+  setFlex,
+  setWholesalePrices,
+  wholesaleTierInput,
   hasTag,
   isFillable,
   isRequired,
@@ -102,10 +106,13 @@ const SITE_CURRENCY: Record<string, string> = {
   MPE: "PEN",
 };
 
+// Compact JSON (no indentation, no nulls/empty arrays) keeps tool results
+// small, which saves a lot of tokens on long listing sessions.
 function ok(data: unknown) {
-  return {
-    content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }],
-  };
+  const text = JSON.stringify(data, (_k, v) =>
+    v === null || (Array.isArray(v) && v.length === 0) ? undefined : v
+  );
+  return { content: [{ type: "text" as const, text: text ?? "{}" }] };
 }
 
 function fail(err: unknown) {
@@ -121,6 +128,14 @@ function fail(err: unknown) {
     content: [{ type: "text" as const, text: `Error: ${message}` }],
     isError: true,
   };
+}
+
+function errText(err: unknown): string {
+  let msg = err instanceof Error ? err.message : String(err);
+  if (err instanceof MeliApiError && err.details !== undefined) {
+    msg += ` | ${JSON.stringify(err.details)}`;
+  }
+  return msg;
 }
 
 async function getMyUserId(): Promise<number> {
@@ -534,16 +549,21 @@ registerTool(
         .min(1)
         .max(2000)
         .optional()
-        .default(300)
-        .describe("Max allowed values returned per attribute (default 300). values_total shows the full count"),
+        .default(25)
+        .describe("Max allowed values returned per attribute (default 25 to save tokens). values_total shows the full count; use value_filter to find a specific one"),
       include_hidden: z
         .boolean()
         .optional()
         .default(false)
         .describe("Also list hidden/read-only attributes the seller cannot fill (default false)"),
+      include_details: z
+        .boolean()
+        .optional()
+        .default(false)
+        .describe("Also return hint, tooltip and group of each attribute (default false, to save tokens)"),
     },
   },
-  async ({ category_id, value_filter, max_values, include_hidden }) => {
+  async ({ category_id, value_filter, max_values, include_hidden, include_details }) => {
     try {
       const data = await getCategoryAttributes(category_id);
       const filter = value_filter?.toLowerCase();
@@ -562,15 +582,15 @@ registerTool(
             value_type: a.value_type,
             required: isRequired(a),
             fillable: isFillable(a),
-            tags: tagList(a),
-            hint: a.hint,
-            tooltip: a.tooltip,
+            tags: tagList(a).filter((t) => t !== "required"),
+            hint: include_details ? a.hint : undefined,
+            tooltip: include_details ? a.tooltip : undefined,
             value_max_length: a.value_max_length,
             allowed_units: Array.isArray(a.allowed_units)
               ? (a.allowed_units as Array<{ id?: string; name?: string }>).map((u) => u.id ?? u.name)
               : undefined,
             default_unit: a.default_unit,
-            group: a.attribute_group_name,
+            group: include_details ? a.attribute_group_name : undefined,
             values_total: all.length || undefined,
             allowed_values: all.length
               ? matching.slice(0, max_values).map((v) => ({ id: v.id, name: v.name }))
@@ -705,6 +725,18 @@ const warrantyShape = {
     .describe("Raw sale terms (see get_category_attributes sale_terms). Overrides the warranty/manufacturing shortcuts with the same id"),
 };
 
+const flexWholesaleShape = {
+  flex: z
+    .boolean()
+    .optional()
+    .describe("true = turn on Envios Flex (same-day delivery) for this listing; false = turn it off. The account must already be enabled for Flex"),
+  wholesale: z
+    .array(wholesaleTierInput)
+    .max(5)
+    .optional()
+    .describe("Wholesale price table (preço de atacado, shown to business buyers), up to 5 tiers, e.g. [{min_quantity:3, discount_percent:5},{min_quantity:6, discount_percent:8}]. Prices must go down as quantity goes up. On update_item, [] removes the table"),
+};
+
 registerTool(
   "create_item",
   {
@@ -770,6 +802,7 @@ registerTool(
         .optional()
         .describe("Free internal reference field (not the SKU)"),
       ...warrantyShape,
+      ...flexWholesaleShape,
       variations: z
         .array(variationInput)
         .optional()
@@ -891,6 +924,26 @@ registerTool(
         }
       }
 
+      // Flex and wholesale prices have their own endpoints, after creation.
+      if (input.flex !== undefined) {
+        try {
+          await setFlex(config.siteId, itemId, input.flex);
+          followUps.push(input.flex ? "flex on" : "flex off");
+        } catch (err) {
+          followUps.push(`flex failed: ${errText(err)}`);
+        }
+      }
+      if (input.wholesale?.length) {
+        try {
+          const w = await setWholesalePrices(itemId, input.wholesale);
+          followUps.push(
+            `wholesale: ${w.tiers.map((t) => `${t.min_quantity}+ = ${t.price}`).join(", ")}`
+          );
+        } catch (err) {
+          followUps.push(`wholesale failed: ${errText(err)}`);
+        }
+      }
+
       const result: Record<string, unknown> = {
         id: itemId,
         title: created.title,
@@ -963,6 +1016,7 @@ registerTool(
       seller_sku: z.string().optional().describe("Set the SKU (SELLER_SKU attribute)"),
       seller_custom_field: z.string().optional().describe("Free internal reference field"),
       ...warrantyShape,
+      ...flexWholesaleShape,
       shipping: z
         .record(z.unknown())
         .optional()
@@ -1078,6 +1132,18 @@ registerTool(
         );
       }
 
+      // 5) Flex and wholesale prices
+      if (input.flex !== undefined) {
+        await step(input.flex ? "flex on" : "flex off", () =>
+          setFlex(config.siteId, item_id, input.flex!)
+        );
+      }
+      if (input.wholesale !== undefined) {
+        await step(input.wholesale.length ? "wholesale prices" : "wholesale removed", () =>
+          setWholesalePrices(item_id, input.wholesale!)
+        );
+      }
+
       if (applied.length === 0 && errors.length === 0) {
         return fail(new Error("Provide at least one field to update."));
       }
@@ -1093,6 +1159,45 @@ registerTool(
       return errors.length > 0 && applied.length === 0
         ? { ...ok(result), isError: true }
         : ok(result);
+    } catch (err) {
+      return fail(err);
+    }
+  }
+);
+
+registerTool(
+  "set_flex",
+  {
+    description:
+      "Check, turn on or turn off Envios Flex (same-day delivery done by the seller) on one listing. Omit 'enabled' to just check. The seller account must already be subscribed to Flex in Mercado Livre.",
+    inputSchema: {
+      item_id: z.string().describe("Item id, e.g. 'MLB123456789'"),
+      enabled: z.boolean().optional().describe("true = turn on, false = turn off, omit = only check"),
+    },
+  },
+  async ({ item_id, enabled }) => {
+    try {
+      if (enabled === undefined) return ok({ item_id, flex: await getFlex(config.siteId, item_id) });
+      return ok({ item_id, ...(await setFlex(config.siteId, item_id, enabled)) });
+    } catch (err) {
+      return fail(err);
+    }
+  }
+);
+
+registerTool(
+  "set_wholesale_prices",
+  {
+    description:
+      "Set (or remove, with an empty list) the wholesale price table of a listing — preço de atacado / preço por quantidade, shown to business buyers. Up to 5 tiers; each tier is a minimum quantity and either a unit price or a % off the regular price. Prices must go down as quantity goes up. Replaces the current table. If Meli warns about a tier price, remove that tier instead of forcing it.",
+    inputSchema: {
+      item_id: z.string().describe("Item id, e.g. 'MLB123456789'"),
+      tiers: z.array(wholesaleTierInput).max(5).describe("e.g. [{min_quantity:3, discount_percent:5},{min_quantity:6, discount_percent:8}]"),
+    },
+  },
+  async ({ item_id, tiers }) => {
+    try {
+      return ok({ item_id, ...(await setWholesalePrices(item_id, tiers)) });
     } catch (err) {
       return fail(err);
     }

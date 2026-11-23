@@ -1,0 +1,39 @@
+{
+  "manifest_version": "0.2",
+  "name": "mercadolivre-jadypon",
+  "display_name": "Mercado Livre (JadyponHidro)",
+  "version": "1.4.0",
+  "description": "Mercado Livre pela API oficial: anúncios completos, Flex, preço de atacado, edição de tudo, checagem do que falta, perguntas, pedidos e envios.",
+  "author": {
+    "name": "JadyponHidro"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jadypon-web/mcp_mercadolivre"
+  },
+  "license": "MIT",
+  "server": {
+    "type": "node",
+    "entry_point": "server/index.mjs",
+    "mcp_config": {
+      "command": "node",
+      "args": [
+        "${__dirname}/server/index.mjs"
+      ],
+      "env": {
+        "ML_SITE_ID": "MLB",
+        "ML_HOME_STORAGE": "1"
+      }
+    }
+  },
+  "compatibility": {
+    "platforms": [
+      "win32",
+      "darwin",
+      "linux"
+    ],
+    "runtimes": {
+      "node": ">=18.0.0"
+    }
+  }
+}
