@@ -22180,7 +22180,14 @@ var TAG_NAMES = [
 function tagList(attr) {
   return TAG_NAMES.filter((t) => hasTag(attr, t));
 }
+var PACKAGE_IDS = /* @__PURE__ */ new Set([
+  "SELLER_PACKAGE_HEIGHT",
+  "SELLER_PACKAGE_WIDTH",
+  "SELLER_PACKAGE_LENGTH",
+  "SELLER_PACKAGE_WEIGHT"
+]);
 function isFillable(attr) {
+  if (PACKAGE_IDS.has(String(attr.id))) return false;
   return !hasTag(attr, "hidden") && !hasTag(attr, "read_only") && !hasTag(attr, "fixed");
 }
 function isRequired(attr, condition = "new") {
@@ -22833,6 +22840,23 @@ var warrantyShape = {
   manufacturing_time: external_exports.string().optional().describe("Extra days before shipping (prazo de disponibilidade), e.g. '5 dias'. Omit when the item ships right away \u2014 it lowers exposure"),
   sale_terms: external_exports.array(saleTermInput).optional().describe("Raw sale terms (see get_category_attributes sale_terms). Overrides the warranty/manufacturing shortcuts with the same id")
 };
+var packageShape = {
+  package: external_exports.object({
+    height_cm: external_exports.number().positive(),
+    width_cm: external_exports.number().positive(),
+    length_cm: external_exports.number().positive(),
+    weight_g: external_exports.number().positive()
+  }).optional().describe("Shipping package size (embalagem): cm and grams. Mercado Livre requires it. Decimals are rounded UP to whole numbers, as Meli only accepts integers")
+};
+function packageAttributes(pkg) {
+  if (!pkg) return [];
+  return [
+    { id: "SELLER_PACKAGE_HEIGHT", value_name: `${Math.ceil(pkg.height_cm)} cm` },
+    { id: "SELLER_PACKAGE_WIDTH", value_name: `${Math.ceil(pkg.width_cm)} cm` },
+    { id: "SELLER_PACKAGE_LENGTH", value_name: `${Math.ceil(pkg.length_cm)} cm` },
+    { id: "SELLER_PACKAGE_WEIGHT", value_name: `${Math.ceil(pkg.weight_g)} g` }
+  ];
+}
 var flexWholesaleShape = {
   flex: external_exports.boolean().optional().describe("true = turn on Envios Flex (same-day delivery) for this listing; false = turn it off. The account must already be enabled for Flex"),
   wholesale: external_exports.array(wholesaleTierInput).max(5).optional().describe("Wholesale price table (pre\xE7o de atacado, shown to business buyers), up to 5 tiers, e.g. [{min_quantity:3, discount_percent:5},{min_quantity:6, discount_percent:8}]. Prices must go down as quantity goes up. On update_item, [] removes the table")
@@ -22840,7 +22864,7 @@ var flexWholesaleShape = {
 registerTool(
   "create_item",
   {
-    description: "Create and PUBLISH a COMPLETE new listing on Mercado Livre \u2014 real write operation: the item becomes public and fees apply when it sells. Confirm the details with the user first. Flow: (1) predict_category; (2) get_category_attributes and fill EVERY fillable attribute (required ones are checked here before sending; empty optional ones are reported); (3) optionally get_listing_prices; (4) create_item with title (or family_name), price, stock, description, pictures, attributes, warranty, seller_sku and, when the product has options like color/size, variations. Pictures accept public URLs or ids from upload_picture. Accounts on Meli's 'User Products' model publish with family_name instead of title \u2014 this is detected automatically. After publishing, the tool re-reads the listing and returns a quality report listing anything still empty (description, pictures, warranty, SKU, attributes) so it can be fixed with update_item right away.",
+    description: "Create and PUBLISH a COMPLETE new listing on Mercado Livre \u2014 real write operation: the item becomes public and fees apply when it sells. Confirm the details with the user first. Always send package (embalagem: cm and grams). Flow: (1) predict_category; (2) get_category_attributes and fill EVERY fillable attribute (required ones are checked here before sending; empty optional ones are reported); (3) optionally get_listing_prices; (4) create_item with title (or family_name), price, stock, description, pictures, attributes, warranty, seller_sku and, when the product has options like color/size, variations. Pictures accept public URLs or ids from upload_picture. Accounts on Meli's 'User Products' model publish with family_name instead of title \u2014 this is detected automatically. After publishing, the tool re-reads the listing and returns a quality report listing anything still empty (description, pictures, warranty, SKU, attributes) so it can be fixed with update_item right away.",
     inputSchema: {
       title: external_exports.string().max(120).optional().describe("Listing title. Limit depends on the category (max_title_length, usually 60). Required unless family_name is given"),
       family_name: external_exports.string().max(120).optional().describe("Generic product name for accounts on the User Products model (Meli builds the title from it). Defaults to title when the account needs it"),
@@ -22858,6 +22882,7 @@ registerTool(
       seller_custom_field: external_exports.string().optional().describe("Free internal reference field (not the SKU)"),
       ...warrantyShape,
       ...flexWholesaleShape,
+      ...packageShape,
       variations: external_exports.array(variationInput).optional().describe("Variations (e.g. colors or sizes) when one listing sells several options"),
       video_id: external_exports.string().optional().describe("Video id from upload_video"),
       shipping: external_exports.record(external_exports.unknown()).optional().describe("Shipping object, e.g. {mode:'me2', free_shipping:true, local_pick_up:false}"),
@@ -22874,7 +22899,18 @@ registerTool(
       if (!input.variations?.length && input.available_quantity === void 0) {
         return fail(new Error("Provide available_quantity (or variations, each with its own stock)."));
       }
-      const attributes = buildAttributes(input.attributes, input.seller_sku);
+      const attributes = buildAttributes(
+        [...input.attributes ?? [], ...packageAttributes(input.package)],
+        input.seller_sku
+      );
+      const hasPackage = (attributes ?? []).some((a) => a.id === "SELLER_PACKAGE_WEIGHT");
+      if (!hasPackage && !input.allow_missing_required) {
+        return fail(
+          new Error(
+            "Package size missing \u2014 nothing was published. Send package {height_cm, width_cm, length_cm, weight_g} (Mercado Livre requires it)."
+          )
+        );
+      }
       const categoryAttrs = await getCategoryAttributes(input.category_id);
       const filled = new Set((attributes ?? []).map((a) => a.id));
       for (const v of input.variations ?? []) {
@@ -23008,6 +23044,7 @@ registerTool(
       seller_custom_field: external_exports.string().optional().describe("Free internal reference field"),
       ...warrantyShape,
       ...flexWholesaleShape,
+      ...packageShape,
       shipping: external_exports.record(external_exports.unknown()).optional().describe("Shipping object, e.g. {free_shipping:true}"),
       variations: external_exports.array(external_exports.record(external_exports.unknown())).optional().describe("Full variations array as Meli expects it. Existing variations must keep their 'id'; omitted ones are deleted. Read get_item first"),
       video_id: external_exports.string().optional().describe("Video id from upload_video"),
@@ -23042,7 +23079,10 @@ registerTool(
       if (input.shipping !== void 0) body.shipping = input.shipping;
       if (input.variations !== void 0) body.variations = input.variations;
       if (input.seller_custom_field !== void 0) body.seller_custom_field = input.seller_custom_field;
-      const attributes = buildAttributes(input.attributes, input.seller_sku);
+      const attributes = buildAttributes(
+        [...input.attributes ?? [], ...packageAttributes(input.package)],
+        input.seller_sku
+      );
       if (attributes) body.attributes = attributes;
       const saleTerms = buildSaleTerms(
         input,
@@ -23233,7 +23273,7 @@ registerTool(
 registerTool(
   "upload_picture",
   {
-    description: "Upload a picture to the seller's Mercado Livre account and get back a picture id. Provide exactly ONE of: url (a public image URL that Meli will download) or file_path (a local image file, uploaded as multipart). Use the returned id in create_item's pictures when the images are local files; for images already hosted at a public URL, passing the URL directly to create_item also works. Returns the picture id, source URL and size variations.",
+    description: "Upload a picture to the seller's Mercado Livre account and get back a picture id. Provide exactly ONE of: url (a public image URL that Meli will download) or file_path (a local image file, uploaded as multipart). Use the returned id in create_item's pictures when the images are local files; for images already hosted at a public URL, passing the URL directly to create_item also works. Returns the picture id.",
     inputSchema: {
       url: external_exports.string().url().optional().describe("Public URL of the image; Meli downloads it"),
       file_path: external_exports.string().optional().describe("Absolute path to a local image file (jpg/png); sent as multipart upload")
@@ -23265,16 +23305,7 @@ registerTool(
           form
         );
       }
-      const variations = Array.isArray(picture.variations) ? picture.variations.map((v) => ({
-        size: v.size,
-        url: v.url
-      })) : [];
-      return ok({
-        id: picture.id,
-        source: picture.source ?? url,
-        max_size: picture.max_size,
-        variations
-      });
+      return ok({ id: picture.id, max_size: picture.max_size });
     } catch (err) {
       return fail(err);
     }
@@ -23794,7 +23825,7 @@ registerTool(
     try {
       const linked = await meliPost(
         "/items/catalog_listings",
-        { item_id, catalog_id: catalog_product_id }
+        { item_id, catalog_product_id }
       );
       return ok({
         id: linked.id ?? item_id,

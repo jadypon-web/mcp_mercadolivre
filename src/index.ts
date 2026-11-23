@@ -750,6 +750,33 @@ const warrantyShape = {
     .describe("Raw sale terms (see get_category_attributes sale_terms). Overrides the warranty/manufacturing shortcuts with the same id"),
 };
 
+const packageShape = {
+  package: z
+    .object({
+      height_cm: z.number().positive(),
+      width_cm: z.number().positive(),
+      length_cm: z.number().positive(),
+      weight_g: z.number().positive(),
+    })
+    .optional()
+    .describe("Shipping package size (embalagem): cm and grams. Mercado Livre requires it. Decimals are rounded UP to whole numbers, as Meli only accepts integers"),
+};
+
+function packageAttributes(pkg?: {
+  height_cm: number;
+  width_cm: number;
+  length_cm: number;
+  weight_g: number;
+}) {
+  if (!pkg) return [];
+  return [
+    { id: "SELLER_PACKAGE_HEIGHT", value_name: `${Math.ceil(pkg.height_cm)} cm` },
+    { id: "SELLER_PACKAGE_WIDTH", value_name: `${Math.ceil(pkg.width_cm)} cm` },
+    { id: "SELLER_PACKAGE_LENGTH", value_name: `${Math.ceil(pkg.length_cm)} cm` },
+    { id: "SELLER_PACKAGE_WEIGHT", value_name: `${Math.ceil(pkg.weight_g)} g` },
+  ];
+}
+
 const flexWholesaleShape = {
   flex: z
     .boolean()
@@ -766,7 +793,7 @@ registerTool(
   "create_item",
   {
     description:
-      "Create and PUBLISH a COMPLETE new listing on Mercado Livre — real write operation: the item becomes public and fees apply when it sells. Confirm the details with the user first. Flow: (1) predict_category; (2) get_category_attributes and fill EVERY fillable attribute (required ones are checked here before sending; empty optional ones are reported); (3) optionally get_listing_prices; (4) create_item with title (or family_name), price, stock, description, pictures, attributes, warranty, seller_sku and, when the product has options like color/size, variations. Pictures accept public URLs or ids from upload_picture. Accounts on Meli's 'User Products' model publish with family_name instead of title — this is detected automatically. After publishing, the tool re-reads the listing and returns a quality report listing anything still empty (description, pictures, warranty, SKU, attributes) so it can be fixed with update_item right away.",
+      "Create and PUBLISH a COMPLETE new listing on Mercado Livre — real write operation: the item becomes public and fees apply when it sells. Confirm the details with the user first. Always send package (embalagem: cm and grams). Flow: (1) predict_category; (2) get_category_attributes and fill EVERY fillable attribute (required ones are checked here before sending; empty optional ones are reported); (3) optionally get_listing_prices; (4) create_item with title (or family_name), price, stock, description, pictures, attributes, warranty, seller_sku and, when the product has options like color/size, variations. Pictures accept public URLs or ids from upload_picture. Accounts on Meli's 'User Products' model publish with family_name instead of title — this is detected automatically. After publishing, the tool re-reads the listing and returns a quality report listing anything still empty (description, pictures, warranty, SKU, attributes) so it can be fixed with update_item right away.",
     inputSchema: {
       title: z
         .string()
@@ -828,6 +855,7 @@ registerTool(
         .describe("Free internal reference field (not the SKU)"),
       ...warrantyShape,
       ...flexWholesaleShape,
+      ...packageShape,
       variations: z
         .array(variationInput)
         .optional()
@@ -865,7 +893,18 @@ registerTool(
         return fail(new Error("Provide available_quantity (or variations, each with its own stock)."));
       }
 
-      const attributes = buildAttributes(input.attributes, input.seller_sku);
+      const attributes = buildAttributes(
+        [...(input.attributes ?? []), ...packageAttributes(input.package)],
+        input.seller_sku
+      );
+      const hasPackage = (attributes ?? []).some((a) => a.id === "SELLER_PACKAGE_WEIGHT");
+      if (!hasPackage && !input.allow_missing_required) {
+        return fail(
+          new Error(
+            "Package size missing — nothing was published. Send package {height_cm, width_cm, length_cm, weight_g} (Mercado Livre requires it)."
+          )
+        );
+      }
       const categoryAttrs = await getCategoryAttributes(input.category_id);
 
       // Check required attributes before sending, so Meli doesn't reject it.
@@ -1042,6 +1081,7 @@ registerTool(
       seller_custom_field: z.string().optional().describe("Free internal reference field"),
       ...warrantyShape,
       ...flexWholesaleShape,
+      ...packageShape,
       shipping: z
         .record(z.unknown())
         .optional()
@@ -1096,7 +1136,10 @@ registerTool(
       if (input.variations !== undefined) body.variations = input.variations;
       if (input.seller_custom_field !== undefined) body.seller_custom_field = input.seller_custom_field;
 
-      const attributes = buildAttributes(input.attributes, input.seller_sku);
+      const attributes = buildAttributes(
+        [...(input.attributes ?? []), ...packageAttributes(input.package)],
+        input.seller_sku
+      );
       if (attributes) body.attributes = attributes;
 
       const saleTerms = buildSaleTerms(
@@ -1333,7 +1376,7 @@ registerTool(
   "upload_picture",
   {
     description:
-      "Upload a picture to the seller's Mercado Livre account and get back a picture id. Provide exactly ONE of: url (a public image URL that Meli will download) or file_path (a local image file, uploaded as multipart). Use the returned id in create_item's pictures when the images are local files; for images already hosted at a public URL, passing the URL directly to create_item also works. Returns the picture id, source URL and size variations.",
+      "Upload a picture to the seller's Mercado Livre account and get back a picture id. Provide exactly ONE of: url (a public image URL that Meli will download) or file_path (a local image file, uploaded as multipart). Use the returned id in create_item's pictures when the images are local files; for images already hosted at a public URL, passing the URL directly to create_item also works. Returns the picture id.",
     inputSchema: {
       url: z
         .string()
@@ -1372,18 +1415,9 @@ registerTool(
           form
         );
       }
-      const variations = Array.isArray(picture.variations)
-        ? (picture.variations as Array<Record<string, unknown>>).map((v) => ({
-            size: v.size,
-            url: v.url,
-          }))
-        : [];
-      return ok({
-        id: picture.id,
-        source: picture.source ?? url,
-        max_size: picture.max_size,
-        variations,
-      });
+      // Only the id matters for create_item; the 17 size variations were
+      // just wasting tokens.
+      return ok({ id: picture.id, max_size: picture.max_size });
     } catch (err) {
       return fail(err);
     }
@@ -2093,7 +2127,7 @@ registerTool(
     try {
       const linked = await meliPost<Record<string, unknown>>(
         "/items/catalog_listings",
-        { item_id, catalog_id: catalog_product_id }
+        { item_id, catalog_product_id }
       );
       return ok({
         id: linked.id ?? item_id,
