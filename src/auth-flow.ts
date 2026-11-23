@@ -231,10 +231,10 @@ Entre com a conta da loja e clique em <b>Permitir</b>.</li>
 ${
   automatic
     ? "<li>Pronto: esta página recebe a autorização sozinha.</li>"
-    : `<li>Depois de permitir, vai abrir uma página que <b>não carrega</b> (“não é possível acessar esse site”). Isso é normal.</li>
-<li>Copie o <b>endereço completo</b> dessa página (a barra lá em cima, começa com <code>https://localhost</code>) e cole aqui:
+    : `<li>Depois de permitir, vai abrir outra página (por exemplo “Example Domain”, ou uma página que não carrega). Isso é normal.</li>
+<li>Copie o <b>endereço completo</b> dessa página (a barra lá em cima, tem <code>?code=</code> no meio) e cole aqui:
 <form method="post" action="/code">
-<textarea name="address" rows="3" required placeholder="https://localhost/callback?code=..."></textarea>
+<textarea name="address" rows="3" required placeholder="https://example.com/callback?code=..."></textarea>
 <button type="submit">Conectar</button></form></li>`
 }
 </ol>

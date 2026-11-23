@@ -90,9 +90,11 @@ export function saveCredentials(
   );
 }
 
-// Meli only accepts HTTPS redirect URIs, so by default the browser lands on a
-// page that doesn't load and the user pastes its address back (see auth-flow).
-export const DEFAULT_REDIRECT_URI = "https://localhost/callback";
+// Meli only accepts public HTTPS redirect URIs, so the browser lands on an
+// outside page and the user pastes its address back (see auth-flow).
+// The DevCenter rejects https://localhost, so the default is the reserved
+// example.com domain; with PKCE the code alone is useless to anyone else.
+export const DEFAULT_REDIRECT_URI = "https://example.com/callback";
 
 // Empty or unresolved placeholders (e.g. "${user_config.x}") count as unset.
 function envValue(name: string): string {
