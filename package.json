@@ -1,6 +1,6 @@
 {
   "name": "@gustavohssouza/mcp-mercadolivre",
-  "version": "1.3.3",
+  "version": "1.4.0",
   "description": "MCP server for the Mercado Livre API — 42 tools for sellers: listings, orders, shipping, messages, claims, metrics, ads",
   "type": "module",
   "main": "dist/index.js",
@@ -15,7 +15,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc && npm run bundle",
+    "build": "tsc && npm run bundle && cp plugin/server/index.mjs extension/server/index.mjs",
     "start": "node dist/index.js",
     "auth": "node dist/auth-cli.js",
     "prepublishOnly": "npm run build",

@@ -21778,9 +21778,13 @@ var ALL_TOOLS = [
   "get_mercado_shop",
   "get_warehouses",
   "check_listing_quality",
-  "connect_account"
+  "connect_account",
+  "set_flex",
+  "set_wholesale_prices"
 ];
 var WRITE_TOOLS = /* @__PURE__ */ new Set([
+  "set_flex",
+  "set_wholesale_prices",
   "create_item",
   "upload_picture",
   "upload_video",
@@ -21810,7 +21814,9 @@ var PROFILES = {
     "upload_video",
     "update_item",
     "update_item_status",
-    "create_catalog_listing"
+    "create_catalog_listing",
+    "set_flex",
+    "set_wholesale_prices"
   ]),
   all: new Set(ALL_TOOLS)
 };
@@ -22282,10 +22288,13 @@ async function checkListingQuality(itemId) {
   }
   let health;
   try {
-    health = await meliGet(`/items/${itemId}/health`);
+    const h = await meliGet(`/items/${itemId}/health`);
+    health = h.health ?? h.level ?? void 0;
   } catch {
     health = void 0;
   }
+  const tags = Array.isArray(item.tags) ? item.tags : [];
+  const flex = tags.includes("self_service_in") ? true : tags.includes("self_service_out") ? false : void 0;
   return {
     item_id: itemId,
     status: item.status,
@@ -22295,8 +22304,71 @@ async function checkListingQuality(itemId) {
     problems,
     missing_required_attributes: missingRequired,
     empty_optional_attributes: emptyOptional,
+    flex,
     meli_warnings: Array.isArray(item.warnings) ? item.warnings : []
   };
+}
+async function setFlex(siteId, itemId, enabled) {
+  const path5 = `/flex/sites/${siteId}/items/${itemId}/v2`;
+  if (enabled) await meliPost(path5);
+  else await meliDelete(path5);
+  return { flex: enabled };
+}
+async function getFlex(siteId, itemId) {
+  try {
+    return await meliGet(`/flex/sites/${siteId}/items/${itemId}/v2`);
+  } catch (err) {
+    if (err instanceof MeliApiError && err.status === 404) return { flex: false };
+    throw err;
+  }
+}
+var wholesaleTierInput = external_exports.object({
+  min_quantity: external_exports.number().int().min(2).describe("Minimum units for this price, e.g. 3"),
+  price: external_exports.number().positive().optional().describe("Unit price from this quantity on"),
+  discount_percent: external_exports.number().gt(0).lt(100).optional().describe("Or a % off the item's regular price, e.g. 5 for 5%")
+}).refine((t) => t.price === void 0 !== (t.discount_percent === void 0), {
+  message: "Each tier needs exactly one of price or discount_percent"
+});
+async function setWholesalePrices(itemId, tiers) {
+  if (tiers.length > 5) throw new Error("Meli allows at most 5 wholesale prices per item.");
+  const current = await meliGet(`/items/${itemId}/prices`);
+  const standard = (current.prices ?? []).filter((p) => p.type === "standard");
+  const regular = standard.filter((p) => !p.conditions?.min_purchase_unit);
+  const base = regular.find((p) => !(p.conditions?.context_restrictions ?? []).length) ?? regular[0];
+  if (!base?.amount) throw new Error("Could not read the item's regular price.");
+  const currency = base.currency_id ?? "BRL";
+  const computed = tiers.map((t) => ({
+    min_quantity: t.min_quantity,
+    price: t.price ?? Math.floor(base.amount * (1 - (t.discount_percent ?? 0) / 100) * 100) / 100
+  })).sort((a, b) => a.min_quantity - b.min_quantity);
+  const seen = /* @__PURE__ */ new Set();
+  let last = base.amount;
+  for (const t of computed) {
+    if (seen.has(t.min_quantity)) throw new Error(`Repeated min_quantity ${t.min_quantity}.`);
+    seen.add(t.min_quantity);
+    if (t.price >= last) {
+      throw new Error(
+        `Wholesale price for ${t.min_quantity}+ units (${t.price}) must be lower than the previous price (${last}).`
+      );
+    }
+    last = t.price;
+  }
+  const body = {
+    prices: [
+      ...regular.filter((p) => p.id).map((p) => ({ id: p.id })),
+      ...computed.map((t) => ({
+        type: "standard",
+        amount: t.price,
+        currency_id: currency,
+        conditions: {
+          context_restrictions: ["channel_marketplace", "user_type_business"],
+          min_purchase_unit: t.min_quantity
+        }
+      }))
+    ]
+  };
+  await meliPost(`/items/${itemId}/prices/standard/quantity`, body);
+  return { base_price: base.amount, tiers: computed };
 }
 
 // src/index.ts
@@ -22340,9 +22412,11 @@ var SITE_CURRENCY = {
   MPE: "PEN"
 };
 function ok(data) {
-  return {
-    content: [{ type: "text", text: JSON.stringify(data, null, 2) }]
-  };
+  const text = JSON.stringify(
+    data,
+    (_k, v) => v === null || Array.isArray(v) && v.length === 0 ? void 0 : v
+  );
+  return { content: [{ type: "text", text: text ?? "{}" }] };
 }
 function fail(err) {
   let message = err instanceof Error ? err.message : String(err);
@@ -22357,6 +22431,13 @@ Meli response body: ${JSON.stringify(err.details)}`;
     content: [{ type: "text", text: `Error: ${message}` }],
     isError: true
   };
+}
+function errText(err) {
+  let msg = err instanceof Error ? err.message : String(err);
+  if (err instanceof MeliApiError && err.details !== void 0) {
+    msg += ` | ${JSON.stringify(err.details)}`;
+  }
+  return msg;
 }
 async function getMyUserId() {
   const me = await meliGet("/users/me");
@@ -22623,11 +22704,12 @@ registerTool(
     inputSchema: {
       category_id: external_exports.string().describe("Category id returned by predict_category, e.g. 'MLB1055'"),
       value_filter: external_exports.string().optional().describe("Only return allowed values whose name contains this text (case-insensitive), e.g. 'Tigre'"),
-      max_values: external_exports.number().int().min(1).max(2e3).optional().default(300).describe("Max allowed values returned per attribute (default 300). values_total shows the full count"),
-      include_hidden: external_exports.boolean().optional().default(false).describe("Also list hidden/read-only attributes the seller cannot fill (default false)")
+      max_values: external_exports.number().int().min(1).max(2e3).optional().default(25).describe("Max allowed values returned per attribute (default 25 to save tokens). values_total shows the full count; use value_filter to find a specific one"),
+      include_hidden: external_exports.boolean().optional().default(false).describe("Also list hidden/read-only attributes the seller cannot fill (default false)"),
+      include_details: external_exports.boolean().optional().default(false).describe("Also return hint, tooltip and group of each attribute (default false, to save tokens)")
     }
   },
-  async ({ category_id, value_filter, max_values, include_hidden }) => {
+  async ({ category_id, value_filter, max_values, include_hidden, include_details }) => {
     try {
       const data = await getCategoryAttributes(category_id);
       const filter = value_filter?.toLowerCase();
@@ -22640,13 +22722,13 @@ registerTool(
           value_type: a.value_type,
           required: isRequired(a),
           fillable: isFillable(a),
-          tags: tagList(a),
-          hint: a.hint,
-          tooltip: a.tooltip,
+          tags: tagList(a).filter((t) => t !== "required"),
+          hint: include_details ? a.hint : void 0,
+          tooltip: include_details ? a.tooltip : void 0,
           value_max_length: a.value_max_length,
           allowed_units: Array.isArray(a.allowed_units) ? a.allowed_units.map((u) => u.id ?? u.name) : void 0,
           default_unit: a.default_unit,
-          group: a.attribute_group_name,
+          group: include_details ? a.attribute_group_name : void 0,
           values_total: all.length || void 0,
           allowed_values: all.length ? matching.slice(0, max_values).map((v) => ({ id: v.id, name: v.name })) : void 0
         };
@@ -22740,6 +22822,10 @@ var warrantyShape = {
   manufacturing_time: external_exports.string().optional().describe("Extra days before shipping (prazo de disponibilidade), e.g. '5 dias'. Omit when the item ships right away \u2014 it lowers exposure"),
   sale_terms: external_exports.array(saleTermInput).optional().describe("Raw sale terms (see get_category_attributes sale_terms). Overrides the warranty/manufacturing shortcuts with the same id")
 };
+var flexWholesaleShape = {
+  flex: external_exports.boolean().optional().describe("true = turn on Envios Flex (same-day delivery) for this listing; false = turn it off. The account must already be enabled for Flex"),
+  wholesale: external_exports.array(wholesaleTierInput).max(5).optional().describe("Wholesale price table (pre\xE7o de atacado, shown to business buyers), up to 5 tiers, e.g. [{min_quantity:3, discount_percent:5},{min_quantity:6, discount_percent:8}]. Prices must go down as quantity goes up. On update_item, [] removes the table")
+};
 registerTool(
   "create_item",
   {
@@ -22760,6 +22846,7 @@ registerTool(
       seller_sku: external_exports.string().optional().describe("Your internal product code, saved as attribute SELLER_SKU (used by ERPs like UpSeller to link the listing)"),
       seller_custom_field: external_exports.string().optional().describe("Free internal reference field (not the SKU)"),
       ...warrantyShape,
+      ...flexWholesaleShape,
       variations: external_exports.array(variationInput).optional().describe("Variations (e.g. colors or sizes) when one listing sells several options"),
       video_id: external_exports.string().optional().describe("Video id from upload_video"),
       shipping: external_exports.record(external_exports.unknown()).optional().describe("Shipping object, e.g. {mode:'me2', free_shipping:true, local_pick_up:false}"),
@@ -22849,6 +22936,24 @@ registerTool(
           followUps.push(`description check failed: ${err.message}`);
         }
       }
+      if (input.flex !== void 0) {
+        try {
+          await setFlex(config2.siteId, itemId, input.flex);
+          followUps.push(input.flex ? "flex on" : "flex off");
+        } catch (err) {
+          followUps.push(`flex failed: ${errText(err)}`);
+        }
+      }
+      if (input.wholesale?.length) {
+        try {
+          const w = await setWholesalePrices(itemId, input.wholesale);
+          followUps.push(
+            `wholesale: ${w.tiers.map((t) => `${t.min_quantity}+ = ${t.price}`).join(", ")}`
+          );
+        } catch (err) {
+          followUps.push(`wholesale failed: ${errText(err)}`);
+        }
+      }
       const result = {
         id: itemId,
         title: created.title,
@@ -22891,6 +22996,7 @@ registerTool(
       seller_sku: external_exports.string().optional().describe("Set the SKU (SELLER_SKU attribute)"),
       seller_custom_field: external_exports.string().optional().describe("Free internal reference field"),
       ...warrantyShape,
+      ...flexWholesaleShape,
       shipping: external_exports.record(external_exports.unknown()).optional().describe("Shipping object, e.g. {free_shipping:true}"),
       variations: external_exports.array(external_exports.record(external_exports.unknown())).optional().describe("Full variations array as Meli expects it. Existing variations must keep their 'id'; omitted ones are deleted. Read get_item first"),
       video_id: external_exports.string().optional().describe("Video id from upload_video"),
@@ -22972,6 +23078,18 @@ registerTool(
           () => meliPost(`/items/${item_id}/listing_type`, { id: input.listing_type_id })
         );
       }
+      if (input.flex !== void 0) {
+        await step(
+          input.flex ? "flex on" : "flex off",
+          () => setFlex(config2.siteId, item_id, input.flex)
+        );
+      }
+      if (input.wholesale !== void 0) {
+        await step(
+          input.wholesale.length ? "wholesale prices" : "wholesale removed",
+          () => setWholesalePrices(item_id, input.wholesale)
+        );
+      }
       if (applied.length === 0 && errors.length === 0) {
         return fail(new Error("Provide at least one field to update."));
       }
@@ -22984,6 +23102,41 @@ registerTool(
         }
       }
       return errors.length > 0 && applied.length === 0 ? { ...ok(result), isError: true } : ok(result);
+    } catch (err) {
+      return fail(err);
+    }
+  }
+);
+registerTool(
+  "set_flex",
+  {
+    description: "Check, turn on or turn off Envios Flex (same-day delivery done by the seller) on one listing. Omit 'enabled' to just check. The seller account must already be subscribed to Flex in Mercado Livre.",
+    inputSchema: {
+      item_id: external_exports.string().describe("Item id, e.g. 'MLB123456789'"),
+      enabled: external_exports.boolean().optional().describe("true = turn on, false = turn off, omit = only check")
+    }
+  },
+  async ({ item_id, enabled }) => {
+    try {
+      if (enabled === void 0) return ok({ item_id, flex: await getFlex(config2.siteId, item_id) });
+      return ok({ item_id, ...await setFlex(config2.siteId, item_id, enabled) });
+    } catch (err) {
+      return fail(err);
+    }
+  }
+);
+registerTool(
+  "set_wholesale_prices",
+  {
+    description: "Set (or remove, with an empty list) the wholesale price table of a listing \u2014 pre\xE7o de atacado / pre\xE7o por quantidade, shown to business buyers. Up to 5 tiers; each tier is a minimum quantity and either a unit price or a % off the regular price. Prices must go down as quantity goes up. Replaces the current table. If Meli warns about a tier price, remove that tier instead of forcing it.",
+    inputSchema: {
+      item_id: external_exports.string().describe("Item id, e.g. 'MLB123456789'"),
+      tiers: external_exports.array(wholesaleTierInput).max(5).describe("e.g. [{min_quantity:3, discount_percent:5},{min_quantity:6, discount_percent:8}]")
+    }
+  },
+  async ({ item_id, tiers }) => {
+    try {
+      return ok({ item_id, ...await setWholesalePrices(item_id, tiers) });
     } catch (err) {
       return fail(err);
     }
