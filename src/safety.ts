@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { config, rootDir } from "./config.js";
+import { config } from "./config.js";
 
 export const ALL_TOOLS: readonly string[] = [
   "search_products",
@@ -45,6 +45,8 @@ export const ALL_TOOLS: readonly string[] = [
   "get_fulfillment_stock",
   "get_mercado_shop",
   "get_warehouses",
+  "check_listing_quality",
+  "connect_account",
 ];
 
 export const WRITE_TOOLS: Set<string> = new Set([
@@ -128,8 +130,9 @@ export const CONTACT_INFO_MESSAGE =
 
 export function auditLog(entry: Record<string, unknown>): void {
   try {
+    fs.mkdirSync(path.dirname(config.tokensFile), { recursive: true });
     fs.appendFileSync(
-      path.join(rootDir, "audit.log"),
+      path.join(path.dirname(config.tokensFile), "audit.log"),
       JSON.stringify(entry) + "\n"
     );
   } catch (err) {

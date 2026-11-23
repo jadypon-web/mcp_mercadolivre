@@ -1,0 +1,14 @@
+{
+  "name": "jadypon-hidro",
+  "description": "Plugins da JadyponHidro para vender no Mercado Livre",
+  "owner": {
+    "name": "JadyponHidro"
+  },
+  "plugins": [
+    {
+      "name": "mercadolivre",
+      "source": "./plugin",
+      "description": "Conecta a conta do Mercado Livre ao Claude pela API oficial: cria anúncios completos, edita tudo, confere o que faltou, responde perguntas, pedidos e envios."
+    }
+  ]
+}

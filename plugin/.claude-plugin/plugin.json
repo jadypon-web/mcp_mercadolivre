@@ -1,0 +1,27 @@
+{
+  "name": "mercadolivre",
+  "displayName": "Mercado Livre (JadyponHidro)",
+  "version": "1.1.0",
+  "description": "Mercado Livre pela API oficial: anúncios completos (características, descrição, garantia, SKU, variações), edição de tudo, checagem de qualidade, perguntas, pedidos e envios.",
+  "author": {
+    "name": "JadyponHidro"
+  },
+  "repository": "https://github.com/jadypon-web/mcp_mercadolivre",
+  "license": "MIT",
+  "keywords": ["mercado-livre", "mercadolibre", "anuncios", "marketplace"],
+  "userConfig": {
+    "ml_client_id": {
+      "type": "string",
+      "title": "App ID do Mercado Livre",
+      "description": "Número do aplicativo criado em developers.mercadolivre.com.br (campo App ID / Client ID)",
+      "required": true
+    },
+    "ml_client_secret": {
+      "type": "string",
+      "title": "Client Secret do Mercado Livre",
+      "description": "Chave secreta do mesmo aplicativo. Fica guardada no cofre seguro do computador",
+      "required": true,
+      "sensitive": true
+    }
+  }
+}
