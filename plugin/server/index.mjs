@@ -21503,7 +21503,7 @@ function saveCredentials(clientId, clientSecret, redirectUri) {
     { mode: 384 }
   );
 }
-var DEFAULT_REDIRECT_URI = "https://localhost/callback";
+var DEFAULT_REDIRECT_URI = "https://example.com/callback";
 function envValue(name) {
   const v = (process.env[name] ?? "").trim();
   return v.startsWith("${") ? "" : v;
@@ -22041,10 +22041,10 @@ var AUTHORIZE_PAGE = (authUrl, automatic) => `
 <ol>
 <li><a class="btn" href="${escapeHtml(authUrl)}" target="_blank" rel="noopener">Abrir o Mercado Livre e autorizar</a><br>
 Entre com a conta da loja e clique em <b>Permitir</b>.</li>
-${automatic ? "<li>Pronto: esta p\xE1gina recebe a autoriza\xE7\xE3o sozinha.</li>" : `<li>Depois de permitir, vai abrir uma p\xE1gina que <b>n\xE3o carrega</b> (\u201Cn\xE3o \xE9 poss\xEDvel acessar esse site\u201D). Isso \xE9 normal.</li>
-<li>Copie o <b>endere\xE7o completo</b> dessa p\xE1gina (a barra l\xE1 em cima, come\xE7a com <code>https://localhost</code>) e cole aqui:
+${automatic ? "<li>Pronto: esta p\xE1gina recebe a autoriza\xE7\xE3o sozinha.</li>" : `<li>Depois de permitir, vai abrir outra p\xE1gina (por exemplo \u201CExample Domain\u201D, ou uma p\xE1gina que n\xE3o carrega). Isso \xE9 normal.</li>
+<li>Copie o <b>endere\xE7o completo</b> dessa p\xE1gina (a barra l\xE1 em cima, tem <code>?code=</code> no meio) e cole aqui:
 <form method="post" action="/code">
-<textarea name="address" rows="3" required placeholder="https://localhost/callback?code=..."></textarea>
+<textarea name="address" rows="3" required placeholder="https://example.com/callback?code=..."></textarea>
 <button type="submit">Conectar</button></form></li>`}
 </ol>
 <p><a href="/setup">Corrigir App ID / Client Secret / endere\xE7o de retorno</a></p>`;
