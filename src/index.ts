@@ -136,7 +136,7 @@ registerTool(
   "connect_account",
   {
     description:
-      "Connect (or reconnect) the seller's Mercado Livre account. Opens the Mercado Livre authorization page in the user's browser and waits up to 3 minutes for them to log in and click allow; tokens are then saved and renewed automatically. Use it on first use, or whenever another tool says the account is not connected. Tell the user to look at the browser window that opened.",
+      "Connect (or reconnect) the seller's Mercado Livre account. Opens a page in the user's browser — the first time, a local form where the user types the App ID and Client Secret (never ask for them in the chat); then the Mercado Livre authorization page — and waits up to 3 minutes for them to finish; tokens are then saved and renewed automatically. Use it on first use, or whenever another tool says the account is not connected. Tell the user to look at the browser window that opened.",
     inputSchema: {
       force: z
         .boolean()
