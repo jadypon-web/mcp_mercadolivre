@@ -3,7 +3,7 @@
 import http from "node:http";
 import { spawn } from "node:child_process";
 import { buildAuthUrl, exchangeCodeForTokens } from "./auth.js";
-import { config } from "./config.js";
+import { config, saveCredentials } from "./config.js";
 
 export function openInBrowser(url: string): void {
   try {
@@ -31,18 +31,13 @@ export function runAuthFlow(
   options: { timeoutMs?: number; openBrowser?: boolean; log?: (m: string) => void } = {}
 ): Promise<AuthFlowResult> {
   const { timeoutMs = 180_000, openBrowser = true, log = () => {} } = options;
-  if (!config.clientId || !config.clientSecret) {
-    return Promise.resolve({
-      ok: false,
-      authUrl: "",
-      message:
-        "ML_CLIENT_ID and ML_CLIENT_SECRET are not set. Fill them in the plugin settings (or .env) first.",
-    });
-  }
   const callbackUrl = new URL(config.redirectUri);
   const port = Number(callbackUrl.port) || 3333;
   const callbackPath = callbackUrl.pathname || "/callback";
-  const authUrl = buildAuthUrl();
+  const setupUrl = `http://localhost:${port}/setup`;
+  // Without App ID / Client Secret, start at a local form instead of Meli.
+  const needsSetup = !config.clientId || !config.clientSecret;
+  const authUrl = needsSetup ? setupUrl : buildAuthUrl();
 
   return new Promise((resolve) => {
     let settled = false;
@@ -56,6 +51,32 @@ export function runAuthFlow(
 
     const server = http.createServer((req, res) => {
       const url = new URL(req.url ?? "/", `http://localhost:${port}`);
+      if (url.pathname === "/setup" && req.method === "GET") {
+        res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+        res.end(SETUP_PAGE(config.redirectUri));
+        return;
+      }
+      if (url.pathname === "/setup" && req.method === "POST") {
+        let raw = "";
+        req.on("data", (c) => {
+          raw += c;
+          if (raw.length > 10_000) req.destroy();
+        });
+        req.on("end", () => {
+          const form = new URLSearchParams(raw);
+          const id = (form.get("client_id") ?? "").trim();
+          const secret = (form.get("client_secret") ?? "").trim();
+          if (!/^\d+$/.test(id) || secret.length < 10) {
+            res.writeHead(400, { "Content-Type": "text/html; charset=utf-8" });
+            res.end("<p>App ID deve ter só números e o Client Secret não pode ficar vazio. <a href='/setup'>Voltar</a></p>");
+            return;
+          }
+          saveCredentials(id, secret);
+          res.writeHead(302, { Location: buildAuthUrl() });
+          res.end();
+        });
+        return;
+      }
       if (url.pathname !== callbackPath) {
         res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
         res.end("Not found");
@@ -105,3 +126,17 @@ export function runAuthFlow(
     });
   });
 }
+
+const SETUP_PAGE = (redirectUri: string) => `<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><title>Conectar Mercado Livre</title>
+<style>body{font-family:system-ui,sans-serif;max-width:520px;margin:48px auto;padding:0 16px;color:#222}
+label{display:block;margin:16px 0 6px;font-weight:600}input{width:100%;padding:10px;font-size:16px;box-sizing:border-box}
+button{margin-top:20px;padding:12px 20px;font-size:16px;background:#3483fa;color:#fff;border:0;border-radius:6px;cursor:pointer}
+.box{background:#f5f5f5;padding:12px;border-radius:6px;font-size:14px}code{background:#eee;padding:2px 4px}</style></head>
+<body><h1>Conectar a conta do Mercado Livre</h1>
+<p class="box">Os dados ficam só neste computador. No aplicativo criado em
+developers.mercadolivre.com.br, a Redirect URI precisa ser exatamente <code>${redirectUri}</code>.</p>
+<form method="post" action="/setup">
+<label for="id">App ID</label><input id="id" name="client_id" inputmode="numeric" required autocomplete="off">
+<label for="sec">Client Secret</label><input id="sec" name="client_secret" type="password" required autocomplete="off">
+<button type="submit">Salvar e autorizar no Mercado Livre</button></form></body></html>`;

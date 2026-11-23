@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -44,16 +45,52 @@ loadDotEnv();
 // via ML_TOKENS_FILE). A pre-existing tokens.json in the package directory
 // keeps local-clone setups working when launched from another directory.
 function resolveTokensFile(): string {
-  if (process.env.ML_TOKENS_FILE) return process.env.ML_TOKENS_FILE;
+  const fromEnv = (process.env.ML_TOKENS_FILE ?? "").trim();
+  if (fromEnv && !fromEnv.includes("${")) return fromEnv;
+  if (fromEnv) return path.join(os.homedir(), ".mcp-mercadolivre", "tokens.json");
   const cwdFile = path.join(process.cwd(), "tokens.json");
   const pkgFile = path.join(rootDir, "tokens.json");
   if (fs.existsSync(pkgFile) && !fs.existsSync(cwdFile)) return pkgFile;
   return cwdFile;
 }
 
+// Credentials can also be typed in a local browser page (connect_account);
+// they are then saved next to the tokens, readable only by the user.
+export function credentialsFile(): string {
+  return path.join(path.dirname(resolveTokensFile()), "credentials.json");
+}
+
+function readSavedCredentials(): { client_id?: string; client_secret?: string } {
+  try {
+    return JSON.parse(fs.readFileSync(credentialsFile(), "utf8"));
+  } catch {
+    return {};
+  }
+}
+
+export function saveCredentials(clientId: string, clientSecret: string): void {
+  const file = credentialsFile();
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(
+    file,
+    JSON.stringify({ client_id: clientId, client_secret: clientSecret }, null, 2),
+    { mode: 0o600 }
+  );
+}
+
+// Empty or unresolved placeholders (e.g. "${user_config.x}") count as unset.
+function envValue(name: string): string {
+  const v = (process.env[name] ?? "").trim();
+  return v.startsWith("${") ? "" : v;
+}
+
 export const config = {
-  clientId: process.env.ML_CLIENT_ID ?? "",
-  clientSecret: process.env.ML_CLIENT_SECRET ?? "",
+  get clientId(): string {
+    return envValue("ML_CLIENT_ID") || (readSavedCredentials().client_id ?? "");
+  },
+  get clientSecret(): string {
+    return envValue("ML_CLIENT_SECRET") || (readSavedCredentials().client_secret ?? "");
+  },
   siteId: process.env.ML_SITE_ID ?? "MLB",
   redirectUri: process.env.ML_REDIRECT_URI ?? "http://localhost:3333/callback",
   tokensFile: resolveTokensFile(),

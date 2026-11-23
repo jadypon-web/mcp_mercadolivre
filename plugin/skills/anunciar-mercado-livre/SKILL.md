@@ -68,4 +68,4 @@ preço = (custo + lucro + custo fixo do ML + entrega) / (1 − tarifa% do ML −
 
 ## Se a conta não estiver conectada
 
-Chame `connect_account`. Ela abre a página do Mercado Livre no navegador, e o usuário só precisa entrar na conta e clicar em permitir.
+Chame `connect_account`. Na primeira vez, ela abre no navegador uma página do próprio computador onde o usuário digita o App ID e o Client Secret. **Nunca peça esses dados no chat.** Em seguida, abre a página do Mercado Livre, e o usuário só entra na conta e clica em permitir.

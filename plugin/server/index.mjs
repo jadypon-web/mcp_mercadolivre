@@ -21440,6 +21440,7 @@ import path4 from "node:path";
 
 // src/config.ts
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 var rootDir = path.resolve(
@@ -21471,15 +21472,44 @@ function loadDotEnv() {
 }
 loadDotEnv();
 function resolveTokensFile() {
-  if (process.env.ML_TOKENS_FILE) return process.env.ML_TOKENS_FILE;
+  const fromEnv = (process.env.ML_TOKENS_FILE ?? "").trim();
+  if (fromEnv && !fromEnv.includes("${")) return fromEnv;
+  if (fromEnv) return path.join(os.homedir(), ".mcp-mercadolivre", "tokens.json");
   const cwdFile = path.join(process.cwd(), "tokens.json");
   const pkgFile = path.join(rootDir, "tokens.json");
   if (fs.existsSync(pkgFile) && !fs.existsSync(cwdFile)) return pkgFile;
   return cwdFile;
 }
+function credentialsFile() {
+  return path.join(path.dirname(resolveTokensFile()), "credentials.json");
+}
+function readSavedCredentials() {
+  try {
+    return JSON.parse(fs.readFileSync(credentialsFile(), "utf8"));
+  } catch {
+    return {};
+  }
+}
+function saveCredentials(clientId, clientSecret) {
+  const file = credentialsFile();
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(
+    file,
+    JSON.stringify({ client_id: clientId, client_secret: clientSecret }, null, 2),
+    { mode: 384 }
+  );
+}
+function envValue(name) {
+  const v = (process.env[name] ?? "").trim();
+  return v.startsWith("${") ? "" : v;
+}
 var config2 = {
-  clientId: process.env.ML_CLIENT_ID ?? "",
-  clientSecret: process.env.ML_CLIENT_SECRET ?? "",
+  get clientId() {
+    return envValue("ML_CLIENT_ID") || (readSavedCredentials().client_id ?? "");
+  },
+  get clientSecret() {
+    return envValue("ML_CLIENT_SECRET") || (readSavedCredentials().client_secret ?? "");
+  },
   siteId: process.env.ML_SITE_ID ?? "MLB",
   redirectUri: process.env.ML_REDIRECT_URI ?? "http://localhost:3333/callback",
   tokensFile: resolveTokensFile(),
@@ -21816,17 +21846,12 @@ function openInBrowser(url) {
 function runAuthFlow(options = {}) {
   const { timeoutMs = 18e4, openBrowser = true, log = () => {
   } } = options;
-  if (!config2.clientId || !config2.clientSecret) {
-    return Promise.resolve({
-      ok: false,
-      authUrl: "",
-      message: "ML_CLIENT_ID and ML_CLIENT_SECRET are not set. Fill them in the plugin settings (or .env) first."
-    });
-  }
   const callbackUrl = new URL(config2.redirectUri);
   const port = Number(callbackUrl.port) || 3333;
   const callbackPath = callbackUrl.pathname || "/callback";
-  const authUrl = buildAuthUrl();
+  const setupUrl = `http://localhost:${port}/setup`;
+  const needsSetup = !config2.clientId || !config2.clientSecret;
+  const authUrl = needsSetup ? setupUrl : buildAuthUrl();
   return new Promise((resolve) => {
     let settled = false;
     const finish = (result) => {
@@ -21838,6 +21863,32 @@ function runAuthFlow(options = {}) {
     };
     const server2 = http.createServer((req, res) => {
       const url = new URL(req.url ?? "/", `http://localhost:${port}`);
+      if (url.pathname === "/setup" && req.method === "GET") {
+        res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+        res.end(SETUP_PAGE(config2.redirectUri));
+        return;
+      }
+      if (url.pathname === "/setup" && req.method === "POST") {
+        let raw = "";
+        req.on("data", (c) => {
+          raw += c;
+          if (raw.length > 1e4) req.destroy();
+        });
+        req.on("end", () => {
+          const form = new URLSearchParams(raw);
+          const id = (form.get("client_id") ?? "").trim();
+          const secret = (form.get("client_secret") ?? "").trim();
+          if (!/^\d+$/.test(id) || secret.length < 10) {
+            res.writeHead(400, { "Content-Type": "text/html; charset=utf-8" });
+            res.end("<p>App ID deve ter s\xF3 n\xFAmeros e o Client Secret n\xE3o pode ficar vazio. <a href='/setup'>Voltar</a></p>");
+            return;
+          }
+          saveCredentials(id, secret);
+          res.writeHead(302, { Location: buildAuthUrl() });
+          res.end();
+        });
+        return;
+      }
       if (url.pathname !== callbackPath) {
         res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
         res.end("Not found");
@@ -21885,6 +21936,19 @@ ${authUrl}
     });
   });
 }
+var SETUP_PAGE = (redirectUri) => `<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><title>Conectar Mercado Livre</title>
+<style>body{font-family:system-ui,sans-serif;max-width:520px;margin:48px auto;padding:0 16px;color:#222}
+label{display:block;margin:16px 0 6px;font-weight:600}input{width:100%;padding:10px;font-size:16px;box-sizing:border-box}
+button{margin-top:20px;padding:12px 20px;font-size:16px;background:#3483fa;color:#fff;border:0;border-radius:6px;cursor:pointer}
+.box{background:#f5f5f5;padding:12px;border-radius:6px;font-size:14px}code{background:#eee;padding:2px 4px}</style></head>
+<body><h1>Conectar a conta do Mercado Livre</h1>
+<p class="box">Os dados ficam s\xF3 neste computador. No aplicativo criado em
+developers.mercadolivre.com.br, a Redirect URI precisa ser exatamente <code>${redirectUri}</code>.</p>
+<form method="post" action="/setup">
+<label for="id">App ID</label><input id="id" name="client_id" inputmode="numeric" required autocomplete="off">
+<label for="sec">Client Secret</label><input id="sec" name="client_secret" type="password" required autocomplete="off">
+<button type="submit">Salvar e autorizar no Mercado Livre</button></form></body></html>`;
 
 // src/listing.ts
 var attributeInput = external_exports.object({
@@ -22200,7 +22264,7 @@ async function getMyUserId() {
 registerTool(
   "connect_account",
   {
-    description: "Connect (or reconnect) the seller's Mercado Livre account. Opens the Mercado Livre authorization page in the user's browser and waits up to 3 minutes for them to log in and click allow; tokens are then saved and renewed automatically. Use it on first use, or whenever another tool says the account is not connected. Tell the user to look at the browser window that opened.",
+    description: "Connect (or reconnect) the seller's Mercado Livre account. Opens a page in the user's browser \u2014 the first time, a local form where the user types the App ID and Client Secret (never ask for them in the chat); then the Mercado Livre authorization page \u2014 and waits up to 3 minutes for them to finish; tokens are then saved and renewed automatically. Use it on first use, or whenever another tool says the account is not connected. Tell the user to look at the browser window that opened.",
     inputSchema: {
       force: external_exports.boolean().optional().default(false).describe("Reconnect even if an account is already connected")
     }
