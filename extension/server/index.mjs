@@ -21436,6 +21436,7 @@ var StdioServerTransport = class {
 
 // src/index.ts
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import os2 from "node:os";
 import path4 from "node:path";
 
 // src/config.ts
@@ -22432,6 +22433,10 @@ Meli response body: ${JSON.stringify(err.details)}`;
     isError: true
   };
 }
+function expandHome(p) {
+  const home = os2.homedir();
+  return p.replace(/^~(?=$|[\\/])/, home).replace(/%USERPROFILE%/gi, home);
+}
 function errText(err) {
   let msg = err instanceof Error ? err.message : String(err);
   if (err instanceof MeliApiError && err.details !== void 0) {
@@ -22684,12 +22689,17 @@ registerTool(
   },
   async ({ title }) => {
     try {
-      const data = await meliGet(`/sites/${config2.siteId}/category_predictor/predict`, { title });
+      const data = await meliGet(`/sites/${config2.siteId}/domain_discovery/search`, { q: title, limit: 5 });
       const predictions = (Array.isArray(data) ? data : []).map((p) => ({
-        id: p.id,
-        name: p.name,
-        path_from_root: (p.path_from_root ?? []).map((n) => n.name),
-        prediction_probability: p.prediction_probability
+        id: p.category_id,
+        name: p.category_name,
+        domain_id: p.domain_id,
+        domain_name: p.domain_name,
+        suggested_attributes: (p.attributes ?? []).map((a) => ({
+          id: a.id,
+          value_id: a.value_id,
+          value_name: a.value_name
+        }))
       }));
       return ok({ predictions });
     } catch (err) {
@@ -22739,7 +22749,8 @@ registerTool(
           () => []
         )
       ]);
-      const sale_terms = (Array.isArray(saleTerms) ? saleTerms : []).filter((t) => !hasTag(t, "hidden")).map((t) => ({
+      const USEFUL_TERMS = ["WARRANTY_TYPE", "WARRANTY_TIME", "MANUFACTURING_TIME", "INVOICE"];
+      const sale_terms = (Array.isArray(saleTerms) ? saleTerms : []).filter((t) => !hasTag(t, "hidden")).filter((t) => include_details || USEFUL_TERMS.includes(String(t.id))).map((t) => ({
         id: t.id,
         name: t.name,
         value_type: t.value_type,
@@ -22789,7 +22800,7 @@ registerTool(
     inputSchema: {
       price: external_exports.number().describe("Intended sale price in the site currency (e.g. BRL for MLB)"),
       category_id: external_exports.string().optional().describe("Category id (from predict_category) for a category-accurate fee"),
-      listing_type_id: external_exports.string().optional().describe("Listing type id (from get_listing_types), e.g. 'gold_special'. Omit to get fees for all types")
+      listing_type_id: external_exports.string().optional().describe("Listing type id, e.g. 'gold_special'. Omit to get Cl\xE1ssico and Premium")
     }
   },
   async ({ price, category_id, listing_type_id }) => {
@@ -22798,16 +22809,16 @@ registerTool(
         `/sites/${config2.siteId}/listing_prices`,
         { price, category_id, listing_type_id }
       );
-      const options = (Array.isArray(data) ? data : []).map((o) => {
+      const list = Array.isArray(data) ? data : data ? [data] : [];
+      const options = list.filter((o) => !listing_type_id || o.listing_type_id === listing_type_id).filter((o) => listing_type_id || ["gold_special", "gold_pro"].includes(String(o.listing_type_id))).map((o) => {
         const fee = o.sale_fee_details ?? {};
         return {
           listing_type_id: o.listing_type_id,
           listing_type_name: o.listing_type_name,
-          listing_exposure: o.listing_exposure,
-          sale_fee_percentage: fee.percentage,
-          sale_fee_amount: fee.gross_amount,
-          free_relist: fee.free_relist,
-          stop_time: o.stop_time
+          total_fee: o.sale_fee_amount ?? fee.gross_amount,
+          percentage_fee: fee.percentage_fee ?? fee.meli_percentage_fee,
+          fixed_fee: fee.fixed_fee,
+          fee_details: fee
         };
       });
       return ok({ price, options });
@@ -23241,12 +23252,13 @@ registerTool(
           source: url
         });
       } else {
-        const buffer = await readFile(file_path);
+        const localPath = expandHome(file_path);
+        const buffer = await readFile(localPath);
         const form = new FormData();
         form.append(
           "file",
           new Blob([new Uint8Array(buffer)]),
-          path4.basename(file_path)
+          path4.basename(localPath)
         );
         picture = await meliPostForm(
           "/pictures",
@@ -23753,6 +23765,7 @@ registerTool(
       return ok({
         id: p.id,
         name: p.name,
+        domain_id: p.domain_id,
         attributes,
         pictures,
         main_features: features,

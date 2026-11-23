@@ -2,6 +2,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { z, type ZodRawShape, type ZodTypeAny } from "zod";
 import { config, rootDir } from "./config.js";
@@ -128,6 +129,14 @@ function fail(err: unknown) {
     content: [{ type: "text" as const, text: `Error: ${message}` }],
     isError: true,
   };
+}
+
+// "~/Downloads/foto.jpg" or "%USERPROFILE%\\Downloads\\foto.jpg" -> absolute path.
+function expandHome(p: string): string {
+  const home = os.homedir();
+  return p
+    .replace(/^~(?=$|[\\/])/, home)
+    .replace(/%USERPROFILE%/gi, home);
 }
 
 function errText(err: unknown): string {
@@ -509,19 +518,27 @@ registerTool(
   },
   async ({ title }) => {
     try {
+      // The old /category_predictor endpoint was retired (404); domain
+      // discovery is the current one and also suggests attribute values.
       const data = await meliGet<
         Array<{
-          id?: string;
-          name?: string;
-          path_from_root?: Array<{ id?: string; name?: string }>;
-          prediction_probability?: number;
+          category_id?: string;
+          category_name?: string;
+          domain_id?: string;
+          domain_name?: string;
+          attributes?: Array<{ id?: string; value_id?: string; value_name?: string }>;
         }>
-      >(`/sites/${config.siteId}/category_predictor/predict`, { title });
+      >(`/sites/${config.siteId}/domain_discovery/search`, { q: title, limit: 5 });
       const predictions = (Array.isArray(data) ? data : []).map((p) => ({
-        id: p.id,
-        name: p.name,
-        path_from_root: (p.path_from_root ?? []).map((n) => n.name),
-        prediction_probability: p.prediction_probability,
+        id: p.category_id,
+        name: p.category_name,
+        domain_id: p.domain_id,
+        domain_name: p.domain_name,
+        suggested_attributes: (p.attributes ?? []).map((a) => ({
+          id: a.id,
+          value_id: a.value_id,
+          value_name: a.value_name,
+        })),
       }));
       return ok({ predictions });
     } catch (err) {
@@ -605,8 +622,10 @@ registerTool(
           () => []
         ),
       ]);
+      const USEFUL_TERMS = ["WARRANTY_TYPE", "WARRANTY_TIME", "MANUFACTURING_TIME", "INVOICE"];
       const sale_terms = (Array.isArray(saleTerms) ? saleTerms : [])
         .filter((t) => !hasTag(t, "hidden"))
+        .filter((t) => include_details || USEFUL_TERMS.includes(String(t.id)))
         .map((t) => ({
           id: t.id,
           name: t.name,
@@ -674,27 +693,33 @@ registerTool(
       listing_type_id: z
         .string()
         .optional()
-        .describe("Listing type id (from get_listing_types), e.g. 'gold_special'. Omit to get fees for all types"),
+        .describe("Listing type id, e.g. 'gold_special'. Omit to get Clássico and Premium"),
     },
   },
   async ({ price, category_id, listing_type_id }) => {
     try {
-      const data = await meliGet<Array<Record<string, unknown>>>(
+      const data = await meliGet<unknown>(
         `/sites/${config.siteId}/listing_prices`,
         { price, category_id, listing_type_id }
       );
-      const options = (Array.isArray(data) ? data : []).map((o) => {
-        const fee = (o.sale_fee_details ?? {}) as Record<string, unknown>;
-        return {
-          listing_type_id: o.listing_type_id,
-          listing_type_name: o.listing_type_name,
-          listing_exposure: o.listing_exposure,
-          sale_fee_percentage: fee.percentage,
-          sale_fee_amount: fee.gross_amount,
-          free_relist: fee.free_relist,
-          stop_time: o.stop_time,
-        };
-      });
+      // With listing_type_id Meli answers a single object, not a list.
+      const list = (Array.isArray(data) ? data : data ? [data] : []) as Array<
+        Record<string, unknown>
+      >;
+      const options = list
+        .filter((o) => !listing_type_id || o.listing_type_id === listing_type_id)
+        .filter((o) => listing_type_id || ["gold_special", "gold_pro"].includes(String(o.listing_type_id)))
+        .map((o) => {
+          const fee = (o.sale_fee_details ?? {}) as Record<string, unknown>;
+          return {
+            listing_type_id: o.listing_type_id,
+            listing_type_name: o.listing_type_name,
+            total_fee: o.sale_fee_amount ?? fee.gross_amount,
+            percentage_fee: fee.percentage_fee ?? fee.meli_percentage_fee,
+            fixed_fee: fee.fixed_fee,
+            fee_details: fee,
+          };
+        });
       return ok({ price, options });
     } catch (err) {
       return fail(err);
@@ -1334,12 +1359,13 @@ registerTool(
           source: url,
         });
       } else {
-        const buffer = await readFile(file_path!);
+        const localPath = expandHome(file_path!);
+        const buffer = await readFile(localPath);
         const form = new FormData();
         form.append(
           "file",
           new Blob([new Uint8Array(buffer)]),
-          path.basename(file_path!)
+          path.basename(localPath)
         );
         picture = await meliPostForm<Record<string, unknown>>(
           "/pictures",
@@ -2030,6 +2056,7 @@ registerTool(
       return ok({
         id: p.id,
         name: p.name,
+        domain_id: p.domain_id,
         attributes,
         pictures,
         main_features: features,
