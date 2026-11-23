@@ -47,7 +47,11 @@ loadDotEnv();
 function resolveTokensFile(): string {
   const fromEnv = (process.env.ML_TOKENS_FILE ?? "").trim();
   if (fromEnv && !fromEnv.includes("${")) return fromEnv;
-  if (fromEnv) return path.join(os.homedir(), ".mcp-mercadolivre", "tokens.json");
+  // Plugin installs (ML_HOME_STORAGE=1) and unresolved placeholders keep the
+  // connection in the user's home folder, which survives plugin updates.
+  if (fromEnv || process.env.ML_HOME_STORAGE === "1") {
+    return path.join(os.homedir(), ".mcp-mercadolivre", "tokens.json");
+  }
   const cwdFile = path.join(process.cwd(), "tokens.json");
   const pkgFile = path.join(rootDir, "tokens.json");
   if (fs.existsSync(pkgFile) && !fs.existsSync(cwdFile)) return pkgFile;

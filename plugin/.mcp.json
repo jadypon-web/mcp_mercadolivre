@@ -7,7 +7,7 @@
       ],
       "env": {
         "ML_SITE_ID": "MLB",
-        "ML_TOKENS_FILE": "${CLAUDE_PLUGIN_DATA}/tokens.json"
+        "ML_HOME_STORAGE": "1"
       }
     }
   }
