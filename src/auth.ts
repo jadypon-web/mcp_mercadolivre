@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { config } from "./config.js";
 import { loadTokens, saveTokens, type StoredTokens } from "./token-store.js";
 
@@ -5,11 +6,27 @@ const AUTH_URL = "https://auth.mercadolivre.com.br/authorization";
 const TOKEN_URL = "https://api.mercadolibre.com/oauth/token";
 const REFRESH_MARGIN_MS = 5 * 60 * 1000;
 
+// PKCE (S256): applications can require it in the DevCenter, and it is
+// harmless when they don't. One verifier per process, so every link built by
+// the same connect flow matches the code that comes back.
+let pkceVerifier: string | null = null;
+
+function getPkceVerifier(): string {
+  pkceVerifier ??= crypto.randomBytes(48).toString("base64url");
+  return pkceVerifier;
+}
+
 export function buildAuthUrl(): string {
+  const challenge = crypto
+    .createHash("sha256")
+    .update(getPkceVerifier())
+    .digest("base64url");
   const params = new URLSearchParams({
     response_type: "code",
     client_id: config.clientId,
     redirect_uri: config.redirectUri,
+    code_challenge: challenge,
+    code_challenge_method: "S256",
   });
   return `${AUTH_URL}?${params.toString()}`;
 }
@@ -58,6 +75,7 @@ export async function exchangeCodeForTokens(
     client_secret: config.clientSecret,
     code,
     redirect_uri: config.redirectUri,
+    ...(pkceVerifier ? { code_verifier: pkceVerifier } : {}),
   });
 }
 

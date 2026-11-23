@@ -21527,6 +21527,9 @@ var config2 = {
   toolProfile: process.env.ML_TOOL_PROFILE ?? "all"
 };
 
+// src/auth.ts
+import crypto from "node:crypto";
+
 // src/token-store.ts
 import fs2 from "node:fs";
 import path2 from "node:path";
@@ -21564,11 +21567,19 @@ function enforceTokenPermissions() {
 var AUTH_URL = "https://auth.mercadolivre.com.br/authorization";
 var TOKEN_URL = "https://api.mercadolibre.com/oauth/token";
 var REFRESH_MARGIN_MS = 5 * 60 * 1e3;
+var pkceVerifier = null;
+function getPkceVerifier() {
+  pkceVerifier ??= crypto.randomBytes(48).toString("base64url");
+  return pkceVerifier;
+}
 function buildAuthUrl() {
+  const challenge = crypto.createHash("sha256").update(getPkceVerifier()).digest("base64url");
   const params = new URLSearchParams({
     response_type: "code",
     client_id: config2.clientId,
-    redirect_uri: config2.redirectUri
+    redirect_uri: config2.redirectUri,
+    code_challenge: challenge,
+    code_challenge_method: "S256"
   });
   return `${AUTH_URL}?${params.toString()}`;
 }
@@ -21602,7 +21613,8 @@ async function exchangeCodeForTokens(code) {
     client_id: config2.clientId,
     client_secret: config2.clientSecret,
     code,
-    redirect_uri: config2.redirectUri
+    redirect_uri: config2.redirectUri,
+    ...pkceVerifier ? { code_verifier: pkceVerifier } : {}
   });
 }
 var refreshPromise = null;
