@@ -3263,8 +3263,8 @@ var require_utils = __commonJS({
       }
       return ind;
     }
-    function removeDotSegments(path5) {
-      let input = path5;
+    function removeDotSegments(path7) {
+      let input = path7;
       const output = [];
       let nextSlash = -1;
       let len = 0;
@@ -3673,8 +3673,8 @@ var require_schemes = __commonJS({
       }
       if (wsComponent.resourceName) {
         const queryIndex = wsComponent.resourceName.indexOf("?");
-        const path5 = queryIndex === -1 ? wsComponent.resourceName : wsComponent.resourceName.slice(0, queryIndex);
-        wsComponent.path = path5 && path5 !== "/" ? path5 : void 0;
+        const path7 = queryIndex === -1 ? wsComponent.resourceName : wsComponent.resourceName.slice(0, queryIndex);
+        wsComponent.path = path7 && path7 !== "/" ? path7 : void 0;
         wsComponent.query = queryIndex === -1 ? void 0 : wsComponent.resourceName.slice(queryIndex + 1);
         wsComponent.resourceName = void 0;
       }
@@ -7187,12 +7187,12 @@ var require_dist = __commonJS({
         throw new Error(`Unknown format "${name}"`);
       return f;
     };
-    function addFormats(ajv, list, fs4, exportName) {
+    function addFormats(ajv, list, fs6, exportName) {
       var _a;
       var _b;
       (_a = (_b = ajv.opts.code).formats) !== null && _a !== void 0 ? _a : _b.formats = (0, codegen_1._)`require("ajv-formats/dist/formats").${exportName}`;
       for (const f of list)
-        ajv.addFormat(f, fs4[f]);
+        ajv.addFormat(f, fs6[f]);
     }
     module.exports = exports = formatsPlugin;
     Object.defineProperty(exports, "__esModule", { value: true });
@@ -7678,8 +7678,8 @@ function getErrorMap() {
 
 // node_modules/zod/v3/helpers/parseUtil.js
 var makeIssue = (params) => {
-  const { data, path: path5, errorMaps, issueData } = params;
-  const fullPath = [...path5, ...issueData.path || []];
+  const { data, path: path7, errorMaps, issueData } = params;
+  const fullPath = [...path7, ...issueData.path || []];
   const fullIssue = {
     ...issueData,
     path: fullPath
@@ -7795,11 +7795,11 @@ var errorUtil;
 
 // node_modules/zod/v3/types.js
 var ParseInputLazyPath = class {
-  constructor(parent, value, path5, key) {
+  constructor(parent, value, path7, key) {
     this._cachedPath = [];
     this.parent = parent;
     this.data = value;
-    this._path = path5;
+    this._path = path7;
     this._key = key;
   }
   get path() {
@@ -11436,10 +11436,10 @@ function assignProp(target, prop, value) {
     configurable: true
   });
 }
-function getElementAtPath(obj, path5) {
-  if (!path5)
+function getElementAtPath(obj, path7) {
+  if (!path7)
     return obj;
-  return path5.reduce((acc, key) => acc?.[key], obj);
+  return path7.reduce((acc, key) => acc?.[key], obj);
 }
 function promiseAllObject(promisesObj) {
   const keys = Object.keys(promisesObj);
@@ -11759,11 +11759,11 @@ function aborted(x, startIndex = 0) {
   }
   return false;
 }
-function prefixIssues(path5, issues) {
+function prefixIssues(path7, issues) {
   return issues.map((iss) => {
     var _a;
     (_a = iss).path ?? (_a.path = []);
-    iss.path.unshift(path5);
+    iss.path.unshift(path7);
     return iss;
   });
 }
@@ -14257,13 +14257,13 @@ function _array(Class2, element, params) {
   });
 }
 function _custom(Class2, fn, _params) {
-  const norm = normalizeParams(_params);
-  norm.abort ?? (norm.abort = true);
+  const norm2 = normalizeParams(_params);
+  norm2.abort ?? (norm2.abort = true);
   const schema = new Class2({
     type: "custom",
     check: "custom",
     fn,
-    ...norm
+    ...norm2
   });
   return schema;
 }
@@ -14617,28 +14617,28 @@ var JSONSchemaGenerator = class {
           }
           case "file": {
             const json = _json;
-            const file = {
+            const file2 = {
               type: "string",
               format: "binary",
               contentEncoding: "binary"
             };
             const { minimum, maximum, mime } = schema._zod.bag;
             if (minimum !== void 0)
-              file.minLength = minimum;
+              file2.minLength = minimum;
             if (maximum !== void 0)
-              file.maxLength = maximum;
+              file2.maxLength = maximum;
             if (mime) {
               if (mime.length === 1) {
-                file.contentMediaType = mime[0];
-                Object.assign(json, file);
+                file2.contentMediaType = mime[0];
+                Object.assign(json, file2);
               } else {
                 json.anyOf = mime.map((m) => {
-                  const mFile = { ...file, contentMediaType: m };
+                  const mFile = { ...file2, contentMediaType: m };
                   return mFile;
                 });
               }
             } else {
-              Object.assign(json, file);
+              Object.assign(json, file2);
             }
             break;
           }
@@ -15174,11 +15174,11 @@ function normalizeObjectSchema(schema) {
   }
   return void 0;
 }
-function getDotPath(path5) {
-  if (path5.length === 0) {
+function getDotPath(path7) {
+  if (path7.length === 0) {
     return "object root";
   }
-  return path5.reduce((acc, seg, index) => {
+  return path7.reduce((acc, seg, index) => {
     if (index === 0) {
       return String(seg);
     }
@@ -21436,8 +21436,7 @@ var StdioServerTransport = class {
 
 // src/index.ts
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import os2 from "node:os";
-import path4 from "node:path";
+import path6 from "node:path";
 
 // src/config.ts
 import fs from "node:fs";
@@ -21494,10 +21493,10 @@ function readSavedCredentials() {
   }
 }
 function saveCredentials(clientId, clientSecret, redirectUri) {
-  const file = credentialsFile();
-  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const file2 = credentialsFile();
+  fs.mkdirSync(path.dirname(file2), { recursive: true });
   fs.writeFileSync(
-    file,
+    file2,
     JSON.stringify(
       { client_id: clientId, client_secret: clientSecret, redirect_uri: redirectUri },
       null,
@@ -21657,9 +21656,9 @@ var MeliApiError = class extends Error {
   status;
   details;
 };
-async function request(method, path5, opts = {}, retried = false) {
+async function request(method, path7, opts = {}, retried = false) {
   const token = await getValidAccessToken();
-  const url = new URL(BASE_URL + path5);
+  const url = new URL(BASE_URL + path7);
   for (const [key, value] of Object.entries(opts.params ?? {})) {
     if (value !== void 0 && value !== "") {
       url.searchParams.set(key, String(value));
@@ -21679,7 +21678,7 @@ async function request(method, path5, opts = {}, retried = false) {
   const res = await fetch(url, { method, headers, body });
   if (res.status === 401 && !retried) {
     await refreshTokens();
-    return request(method, path5, opts, true);
+    return request(method, path7, opts, true);
   }
   if (!res.ok) {
     let message = res.statusText;
@@ -21695,14 +21694,14 @@ async function request(method, path5, opts = {}, retried = false) {
   if (res.status === 204) return void 0;
   return await res.json();
 }
-var meliGet = (path5, params) => request("GET", path5, { params });
-var meliPost = (path5, body, params) => request("POST", path5, { body, params });
-var meliPut = (path5, body, params) => request("PUT", path5, { body, params });
-var meliDelete = (path5, params) => request("DELETE", path5, { params });
-var meliPostForm = (path5, formData, params) => request("POST", path5, { formData, params });
-async function meliGetRaw(path5, params, accept = "application/octet-stream", retried = false) {
+var meliGet = (path7, params) => request("GET", path7, { params });
+var meliPost = (path7, body, params) => request("POST", path7, { body, params });
+var meliPut = (path7, body, params) => request("PUT", path7, { body, params });
+var meliDelete = (path7, params) => request("DELETE", path7, { params });
+var meliPostForm = (path7, formData, params) => request("POST", path7, { formData, params });
+async function meliGetRaw(path7, params, accept = "application/octet-stream", retried = false) {
   const token = await getValidAccessToken();
-  const url = new URL(BASE_URL + path5);
+  const url = new URL(BASE_URL + path7);
   for (const [key, value] of Object.entries(params ?? {})) {
     if (value !== void 0 && value !== "") {
       url.searchParams.set(key, String(value));
@@ -21714,7 +21713,7 @@ async function meliGetRaw(path5, params, accept = "application/octet-stream", re
   });
   if (res.status === 401 && !retried) {
     await refreshTokens();
-    return meliGetRaw(path5, params, accept, true);
+    return meliGetRaw(path7, params, accept, true);
   }
   const contentType = res.headers.get("content-type") ?? "";
   if (!res.ok || contentType.includes("application/json")) {
@@ -21743,6 +21742,7 @@ var ALL_TOOLS = [
   "get_orders",
   "predict_category",
   "get_category_attributes",
+  "save_category_preset",
   "get_listing_types",
   "get_listing_prices",
   "create_item",
@@ -21816,6 +21816,7 @@ var PROFILES = {
     "update_item",
     "update_item_status",
     "create_catalog_listing",
+    "save_category_preset",
     "set_flex",
     "set_wholesale_prices"
   ]),
@@ -22058,6 +22059,187 @@ ${automatic ? "<li>Pronto: esta p\xE1gina recebe a autoriza\xE7\xE3o sozinha.</l
 </ol>
 <p><a href="/setup">Corrigir App ID / Client Secret / endere\xE7o de retorno</a></p>`;
 
+// src/photos.ts
+import fs4 from "node:fs";
+import os2 from "node:os";
+import path4 from "node:path";
+var IMAGE_EXT = /* @__PURE__ */ new Set([".jpg", ".jpeg", ".png", ".webp", ".gif"]);
+var SKIP_DIRS = /* @__PURE__ */ new Set(["appdata", "node_modules", "windows", "program files", "program files (x86)"]);
+var MIME = {
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".png": "image/png",
+  ".webp": "image/webp",
+  ".gif": "image/gif"
+};
+function norm(s) {
+  return s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+}
+function expandPath(p) {
+  return p.startsWith("~") ? path4.join(os2.homedir(), p.slice(1)) : p;
+}
+function isDir(p) {
+  try {
+    return fs4.statSync(p).isDirectory();
+  } catch {
+    return false;
+  }
+}
+function listDir(p) {
+  try {
+    return fs4.readdirSync(p, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+}
+var photosDirCache;
+function findPhotosDir() {
+  if (photosDirCache !== void 0) return photosDirCache;
+  const env = process.env.ML_PHOTOS_DIR;
+  if (env && isDir(expandPath(env))) {
+    photosDirCache = expandPath(env);
+    return photosDirCache;
+  }
+  const home = os2.homedir();
+  const queue = [{ dir: home, depth: 0 }];
+  while (queue.length > 0) {
+    const { dir, depth } = queue.shift();
+    for (const e of listDir(dir)) {
+      if (!e.isDirectory()) continue;
+      const name = norm(e.name);
+      if (name.startsWith(".") || SKIP_DIRS.has(name)) continue;
+      if (name.includes("foto") && name.includes("produto")) {
+        photosDirCache = path4.join(dir, e.name);
+        return photosDirCache;
+      }
+      if (depth < 3) queue.push({ dir: path4.join(dir, e.name), depth: depth + 1 });
+    }
+  }
+  photosDirCache = null;
+  return null;
+}
+function imagesIn(dir) {
+  return listDir(dir).filter((e) => e.isFile() && IMAGE_EXT.has(path4.extname(e.name).toLowerCase())).map((e) => path4.join(dir, e.name)).sort(
+    (a, b) => path4.basename(a).localeCompare(path4.basename(b), "pt-BR", { numeric: true })
+  );
+}
+function findFile(root, wanted, maxDepth = 4) {
+  const target = norm(wanted);
+  const queue = [{ dir: root, depth: 0 }];
+  while (queue.length > 0) {
+    const { dir, depth } = queue.shift();
+    for (const e of listDir(dir)) {
+      if (e.isFile() && norm(e.name) === target) return path4.join(dir, e.name);
+      if (e.isDirectory() && depth < maxDepth) queue.push({ dir: path4.join(dir, e.name), depth: depth + 1 });
+    }
+  }
+  return null;
+}
+function findProductFolder(root, name) {
+  const target = norm(name);
+  const exact = [];
+  const partial2 = [];
+  const queue = [{ dir: root, depth: 0 }];
+  while (queue.length > 0) {
+    const { dir, depth } = queue.shift();
+    for (const e of listDir(dir)) {
+      if (!e.isDirectory()) continue;
+      const n = norm(e.name);
+      const full = path4.join(dir, e.name);
+      if (n === target) exact.push(full);
+      else if (n.includes(target)) partial2.push(full);
+      if (depth < 3) queue.push({ dir: full, depth: depth + 1 });
+    }
+  }
+  return exact[0] ?? partial2[0] ?? null;
+}
+var uploaded = /* @__PURE__ */ new Map();
+async function uploadFile(file2) {
+  const stat = fs4.statSync(file2);
+  const key = `${file2}:${stat.mtimeMs}`;
+  const hit = uploaded.get(key);
+  if (hit) return hit;
+  const ext = path4.extname(file2).toLowerCase();
+  const buffer = fs4.readFileSync(file2);
+  const form = new FormData();
+  form.append(
+    "file",
+    new Blob([new Uint8Array(buffer)], { type: MIME[ext] ?? "application/octet-stream" }),
+    path4.basename(file2)
+  );
+  const pic = await meliPostForm("/pictures", form);
+  const id = String(pic.id);
+  uploaded.set(key, id);
+  return id;
+}
+var URL_RE2 = /^https?:\/\//i;
+var PICTURE_ID_RE = /^\d+-MLB\d+_\d+$/i;
+async function resolvePictureRefs(refs, folder) {
+  const out = [];
+  const files = [];
+  const order = [];
+  const root = findPhotosDir();
+  if (folder) {
+    let dir = isDir(expandPath(folder)) ? expandPath(folder) : null;
+    if (!dir && root) dir = findProductFolder(root, folder);
+    if (!dir) {
+      throw new Error(
+        `Pasta de fotos "${folder}" n\xE3o encontrada${root ? ` dentro de ${root}` : " (pasta de fotos de produtos n\xE3o localizada; defina ML_PHOTOS_DIR)"}.`
+      );
+    }
+    const imgs = imagesIn(dir);
+    if (imgs.length === 0) throw new Error(`A pasta ${dir} n\xE3o tem imagens.`);
+    for (const f of imgs) order.push({ file: f });
+  }
+  for (const ref of refs ?? []) {
+    if (URL_RE2.test(ref) || PICTURE_ID_RE.test(ref) || !IMAGE_EXT.has(path4.extname(ref).toLowerCase())) {
+      order.push(ref);
+      continue;
+    }
+    let file2 = fs4.existsSync(expandPath(ref)) ? expandPath(ref) : null;
+    if (!file2 && root) file2 = findFile(root, path4.basename(ref));
+    if (!file2) throw new Error(`Foto "${ref}" n\xE3o encontrada${root ? ` em ${root}` : ""}.`);
+    order.push({ file: file2 });
+  }
+  for (const item of order) if (typeof item !== "string") files.push(item.file);
+  const ids = await Promise.all(files.map(uploadFile));
+  let i = 0;
+  for (const item of order) out.push(typeof item === "string" ? item : ids[i++]);
+  return out;
+}
+
+// src/presets.ts
+import fs5 from "node:fs";
+import os3 from "node:os";
+import path5 from "node:path";
+function file() {
+  const dir = path5.join(os3.homedir(), ".mcp-mercadolivre");
+  fs5.mkdirSync(dir, { recursive: true });
+  return path5.join(dir, "presets.json");
+}
+function readAll() {
+  try {
+    return JSON.parse(fs5.readFileSync(file(), "utf8"));
+  } catch {
+    return {};
+  }
+}
+function getPreset(key) {
+  return readAll()[key];
+}
+function savePreset(key, preset) {
+  const all = readAll();
+  all[key] = preset;
+  fs5.writeFileSync(file(), JSON.stringify(all, null, 1));
+}
+function listPresets() {
+  return Object.entries(readAll()).map(([key, p]) => ({
+    key,
+    category_id: p.category_id,
+    attributes: p.attributes.length
+  }));
+}
+
 // src/listing.ts
 var attributeInput = external_exports.object({
   id: external_exports.string().describe("Attribute id, e.g. 'BRAND', 'MODEL', 'GTIN', 'SELLER_SKU'"),
@@ -22089,9 +22271,9 @@ var variationInput = external_exports.object({
   seller_sku: external_exports.string().optional().describe("SKU of this variation (saved as SELLER_SKU)"),
   attributes: external_exports.array(attributeInput).optional().describe("Per-variation attributes with variation_attribute=true, e.g. GTIN")
 });
-var URL_RE2 = /^https?:\/\//i;
+var URL_RE3 = /^https?:\/\//i;
 function toPictures(list) {
-  return list.map((p) => URL_RE2.test(p) ? { source: p } : { id: p });
+  return list.map((p) => URL_RE3.test(p) ? { source: p } : { id: p });
 }
 function cleanValue(a) {
   const out = { id: a.id };
@@ -22317,9 +22499,9 @@ async function checkListingQuality(itemId) {
   };
 }
 async function setFlex(siteId, itemId, enabled) {
-  const path5 = `/flex/sites/${siteId}/items/${itemId}/v2`;
-  if (enabled) await meliPost(path5);
-  else await meliDelete(path5);
+  const path7 = `/flex/sites/${siteId}/items/${itemId}/v2`;
+  if (enabled) await meliPost(path7);
+  else await meliDelete(path7);
   return { flex: enabled };
 }
 async function getFlex(siteId, itemId) {
@@ -22439,10 +22621,6 @@ Meli response body: ${JSON.stringify(err.details)}`;
     content: [{ type: "text", text: `Error: ${message}` }],
     isError: true
   };
-}
-function expandHome(p) {
-  const home = os2.homedir();
-  return p.replace(/^~(?=$|[\\/])/, home).replace(/%USERPROFILE%/gi, home);
 }
 function errText(err) {
   let msg = err instanceof Error ? err.message : String(err);
@@ -22864,7 +23042,7 @@ var flexWholesaleShape = {
 registerTool(
   "create_item",
   {
-    description: "Create and PUBLISH a COMPLETE new listing on Mercado Livre \u2014 real write operation: the item becomes public and fees apply when it sells. Confirm the details with the user first. Always send package (embalagem: cm and grams). Flow: (1) predict_category; (2) get_category_attributes and fill EVERY fillable attribute (required ones are checked here before sending; empty optional ones are reported); (3) optionally get_listing_prices; (4) create_item with title (or family_name), price, stock, description, pictures, attributes, warranty, seller_sku and, when the product has options like color/size, variations. Pictures accept public URLs or ids from upload_picture. Accounts on Meli's 'User Products' model publish with family_name instead of title \u2014 this is detected automatically. After publishing, the tool re-reads the listing and returns a quality report listing anything still empty (description, pictures, warranty, SKU, attributes) so it can be fixed with update_item right away.",
+    description: "Create and PUBLISH a COMPLETE new listing on Mercado Livre in ONE call \u2014 no confirmation step: when the user handed over a product to list, publish it. Handles everything: attributes (required ones are checked first), description, pictures, warranty, SKU, package (embalagem, required), Flex, wholesale prices, optional catalog link (catalog_product_id) and a quality check. Pictures: pass photos_folder (a product folder name or path inside the user's photos folder, e.g. '9003') and ALL images in it are uploaded straight from disk in name order \u2014 never send photos through the chat. pictures also accepts file names, local paths, URLs or picture ids. preset applies saved attributes of a category (see save_category_preset). Accounts on the 'User Products' model publish with family_name instead of title (detected automatically). Returns only: id, link, status and what is still missing.",
     inputSchema: {
       title: external_exports.string().max(120).optional().describe("Listing title. Limit depends on the category (max_title_length, usually 60). Required unless family_name is given"),
       family_name: external_exports.string().max(120).optional().describe("Generic product name for accounts on the User Products model (Meli builds the title from it). Defaults to title when the account needs it"),
@@ -22876,7 +23054,10 @@ registerTool(
       buying_mode: external_exports.string().optional().default("buy_it_now").describe("Keep 'buy_it_now' unless the user explicitly wants something else"),
       currency_id: external_exports.string().optional().describe("ISO currency. Defaults to the site currency (BRL for MLB)"),
       description: external_exports.string().describe("Plain-text description (no HTML, no emojis). Required: listings without description lose quality"),
-      pictures: external_exports.array(external_exports.string()).min(1).describe("Pictures in display order: public image URLs and/or picture ids returned by upload_picture"),
+      pictures: external_exports.array(external_exports.string()).optional().describe("Pictures in display order: image file names or local paths (read from disk), public URLs or picture ids"),
+      photos_folder: external_exports.string().optional().describe("Product folder inside the user's photos folder (e.g. the SKU '9003'), or a full folder path. All images in it are uploaded in name order, before any in pictures"),
+      catalog_product_id: external_exports.string().optional().describe("Catalog product id (from search_catalog): the listing is linked to the catalog right after publishing"),
+      preset: external_exports.string().optional().describe("Name of a saved category preset (save_category_preset): its attributes are used as defaults; attributes you pass override them"),
       attributes: external_exports.array(attributeInput).optional().describe("Item attributes (caracter\xEDsticas). Include every fillable attribute from get_category_attributes; use value_id for closed lists"),
       seller_sku: external_exports.string().optional().describe("Your internal product code, saved as attribute SELLER_SKU (used by ERPs like UpSeller to link the listing)"),
       seller_custom_field: external_exports.string().optional().describe("Free internal reference field (not the SKU)"),
@@ -22899,8 +23080,16 @@ registerTool(
       if (!input.variations?.length && input.available_quantity === void 0) {
         return fail(new Error("Provide available_quantity (or variations, each with its own stock)."));
       }
+      const presetAttrs = input.preset ? getPreset(input.preset)?.attributes : void 0;
+      if (input.preset && !presetAttrs) {
+        return fail(new Error(`Preset "${input.preset}" not found. Existing: ${listPresets().map((p) => p.key).join(", ") || "none"}.`));
+      }
+      const resolvedPictures = await resolvePictureRefs(input.pictures, input.photos_folder);
+      if (resolvedPictures.length === 0) {
+        return fail(new Error("Provide photos_folder or pictures (at least one photo)."));
+      }
       const attributes = buildAttributes(
-        [...input.attributes ?? [], ...packageAttributes(input.package)],
+        [...presetAttrs ?? [], ...input.attributes ?? [], ...packageAttributes(input.package)],
         input.seller_sku
       );
       const hasPackage = (attributes ?? []).some((a) => a.id === "SELLER_PACKAGE_WEIGHT");
@@ -22949,7 +23138,7 @@ registerTool(
         }
         body.title = title;
       }
-      let pictureList = [...input.pictures];
+      let pictureList = [...resolvedPictures];
       if (input.variations?.length) {
         const built = buildVariations(input.variations, input.price);
         body.variations = built.variations;
@@ -23001,24 +23190,35 @@ registerTool(
           followUps.push(`wholesale failed: ${errText(err)}`);
         }
       }
+      if (input.catalog_product_id) {
+        try {
+          await meliPost("/items/catalog_listings", {
+            item_id: itemId,
+            catalog_product_id: input.catalog_product_id
+          });
+          followUps.push(`catalog ${input.catalog_product_id}`);
+        } catch (err) {
+          followUps.push(`catalog failed: ${errText(err)}`);
+        }
+      }
       const result = {
         id: itemId,
-        title: created.title,
-        family_name: created.family_name,
+        link: created.permalink,
         status: created.status,
-        permalink: created.permalink,
-        listing_model: useFamilyName ? "user_products (family_name)" : "classic (title)",
-        warnings: created.warnings ?? [],
-        follow_ups: followUps
+        warnings: created.warnings,
+        done: followUps
       };
       if (input.check_quality) {
         try {
-          result.quality = await checkListingQuality(itemId);
+          const q = await checkListingQuality(itemId);
+          result.complete = q.complete;
+          if (!q.complete) result.missing = q.problems;
+          if (q.health !== void 0) result.health = q.health;
         } catch (err) {
           result.quality = `quality check failed: ${err.message}`;
         }
       } else if (missing.length > 0) {
-        result.empty_attributes = missing;
+        result.empty_attributes = missing.map((m) => m.id);
       }
       return ok(result);
     } catch (err) {
@@ -23037,7 +23237,8 @@ registerTool(
       title: external_exports.string().max(120).optional().describe("New title; on User Products listings it is applied as family_name. Only while the item has no sales"),
       family_name: external_exports.string().max(120).optional().describe("New family_name (User Products listings). Only while there are no sales"),
       description: external_exports.string().optional().describe("New plain-text description (replaces the current one)"),
-      pictures: external_exports.array(external_exports.string()).optional().describe("Pictures (public URLs or ids from upload_picture). Replaces the current pictures unless append_pictures=true"),
+      pictures: external_exports.array(external_exports.string()).optional().describe("Pictures: file names or local paths (read from disk), public URLs or picture ids. Replaces the current pictures unless append_pictures=true"),
+      photos_folder: external_exports.string().optional().describe("Product folder inside the photos folder (e.g. SKU '9003'): all its images are uploaded in name order"),
       append_pictures: external_exports.boolean().optional().default(false).describe("Keep the current pictures and add these after them"),
       attributes: external_exports.array(attributeInput).optional().describe("Attributes to set or change; attributes not listed are kept"),
       seller_sku: external_exports.string().optional().describe("Set the SKU (SELLER_SKU attribute)"),
@@ -23089,9 +23290,10 @@ registerTool(
         current.sale_terms ?? []
       );
       if (saleTerms) body.sale_terms = saleTerms;
-      if (input.pictures !== void 0) {
+      if (input.pictures !== void 0 || input.photos_folder !== void 0) {
         const existing = input.append_pictures ? (current.pictures ?? []).map((p) => p.id).filter((id) => Boolean(id)) : [];
-        body.pictures = [...existing.map((id) => ({ id })), ...toPictures(input.pictures)];
+        const resolved = await resolvePictureRefs(input.pictures, input.photos_folder);
+        body.pictures = [...existing.map((id) => ({ id })), ...toPictures(resolved)];
       }
       if (Object.keys(body).length > 0) {
         await step(
@@ -23292,18 +23494,8 @@ registerTool(
           source: url
         });
       } else {
-        const localPath = expandHome(file_path);
-        const buffer = await readFile(localPath);
-        const form = new FormData();
-        form.append(
-          "file",
-          new Blob([new Uint8Array(buffer)]),
-          path4.basename(localPath)
-        );
-        picture = await meliPostForm(
-          "/pictures",
-          form
-        );
+        const [resolved] = await resolvePictureRefs([file_path], void 0);
+        return ok({ id: resolved });
       }
       return ok({ id: picture.id, max_size: picture.max_size });
     } catch (err) {
@@ -23322,7 +23514,7 @@ registerTool(
   },
   async ({ file_path }) => {
     try {
-      const ext = path4.extname(file_path).toLowerCase();
+      const ext = path6.extname(file_path).toLowerCase();
       if (!VIDEO_EXTENSIONS.has(ext)) {
         return fail(
           new Error(
@@ -23340,7 +23532,7 @@ registerTool(
       form.append(
         "file",
         new Blob([new Uint8Array(buffer)]),
-        path4.basename(file_path)
+        path6.basename(file_path)
       );
       const video = await meliPostForm(
         "/pictures",
@@ -23419,9 +23611,9 @@ registerTool(
         "application/pdf"
       );
       const ext = response_type === "zpl2" ? "zpl" : "pdf";
-      const labelsDir = path4.join(rootDir, "labels");
+      const labelsDir = path6.join(rootDir, "labels");
       await mkdir(labelsDir, { recursive: true });
-      const filePath = path4.join(labelsDir, `label_${shipment_id}.${ext}`);
+      const filePath = path6.join(labelsDir, `label_${shipment_id}.${ext}`);
       await writeFile(filePath, data);
       return ok({
         file_path: filePath,
@@ -23813,9 +24005,38 @@ registerTool(
   }
 );
 registerTool(
+  "save_category_preset",
+  {
+    description: "Save the attributes that repeat for every product of a category (e.g. mounting type, finish, faucet control) under a short name, so create_item can reuse them with preset=<name> and nobody has to re-read or re-send the whole category list. Only save fixed values; product-specific ones (brand, model, GTIN, size) must still be passed on each create_item. Calling it again with the same key replaces the preset. With no attributes it lists the saved presets.",
+    inputSchema: {
+      key: external_exports.string().optional().describe("Preset name, e.g. 'torneira-jardim'"),
+      category_id: external_exports.string().optional().describe("Category id the preset belongs to"),
+      attributes: external_exports.array(attributeInput).optional().describe("Fixed attributes of the category")
+    }
+  },
+  async ({ key, category_id, attributes }) => {
+    try {
+      if (!key || !category_id || !attributes?.length) {
+        return ok({ presets: listPresets(), photos_folder: findPhotosDir() ?? "not found" });
+      }
+      savePreset(key, {
+        category_id,
+        attributes: attributes.map((a) => ({
+          id: a.id,
+          ...a.value_id !== void 0 ? { value_id: a.value_id } : {},
+          ...a.value_name !== void 0 ? { value_name: a.value_name } : {}
+        }))
+      });
+      return ok({ saved: key, attributes: attributes.length });
+    } catch (err) {
+      return fail(err);
+    }
+  }
+);
+registerTool(
   "create_catalog_listing",
   {
-    description: "Opt one of your EXISTING listings into catalog competition by linking it to a catalog product \u2014 this is a real write operation. The listing keeps its identity but starts competing for the buy box under catalog rules: display and sales conditions change (e.g. free-shipping and price rules may differ from a standalone listing). Confirm with the user before calling. Flow: search_catalog \u2192 get_catalog_product (check the winner's price) \u2192 create_catalog_listing. The item must belong to the authenticated seller and match the catalog product. Returns the linked item id, status and permalink.",
+    description: "Opt one of your EXISTING listings into catalog competition by linking it to a catalog product \u2014 this is a real write operation. The listing keeps its identity but starts competing for the buy box under catalog rules: display and sales conditions change (e.g. free-shipping and price rules may differ from a standalone listing). Flow: search_catalog \u2192 get_catalog_product (check the winner's price) \u2192 create_catalog_listing. The item must belong to the authenticated seller and match the catalog product. Returns the linked item id, status and permalink.",
     inputSchema: {
       item_id: external_exports.string().describe("Your existing item id (with site prefix), e.g. 'MLB123456789'"),
       catalog_product_id: external_exports.string().describe("Catalog product id from search_catalog, e.g. 'MLB15171222'")
@@ -23873,8 +24094,8 @@ registerTool(
   },
   async ({ category_id, limit }) => {
     try {
-      const path5 = category_id ? `/trends/${config2.siteId}/${category_id}` : `/trends/${config2.siteId}`;
-      const data = await meliGet(path5);
+      const path7 = category_id ? `/trends/${config2.siteId}/${category_id}` : `/trends/${config2.siteId}`;
+      const data = await meliGet(path7);
       const list = Array.isArray(data) ? data : data.results ?? [];
       const trends = list.slice(0, limit).map((t) => ({ keyword: t.keyword, url: t.url }));
       return ok({ site: config2.siteId, category_id: category_id ?? null, trends });
@@ -24091,7 +24312,7 @@ registerTool(
 registerTool(
   "add_item_to_promotion",
   {
-    description: "Submit one of your items to a promotion campaign with the offered deal price \u2014 this is a REAL write operation: if Meli approves, the item starts being sold at the promotional price for the campaign duration. Confirm the price with the user before calling. Flow: get_promotions (find a 'candidate' campaign) \u2192 add_item_to_promotion with the deal_price within the campaign's allowed range. Returns the submission result with item id and status.",
+    description: "Submit one of your items to a promotion campaign with the offered deal price \u2014 this is a REAL write operation: if Meli approves, the item starts being sold at the promotional price for the campaign duration. Flow: get_promotions (find a 'candidate' campaign) \u2192 add_item_to_promotion with the deal_price within the campaign's allowed range. Returns the submission result with item id and status.",
     inputSchema: {
       item_id: external_exports.string().describe("Your item id (with site prefix), e.g. 'MLB123456789'"),
       promotion_id: external_exports.string().describe("Promotion id from get_promotions"),
