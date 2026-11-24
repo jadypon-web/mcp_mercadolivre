@@ -12,6 +12,15 @@ import { z } from "zod";
 
 const HOME = path.join(os.homedir(), ".upseller-planilha");
 const CONFIG = path.join(HOME, "config.json");
+const FICHAS = path.join(HOME, "fichas.json");
+function readFichas(): Record<string, Record<string, unknown>> {
+  try { return JSON.parse(fs.readFileSync(FICHAS, "utf8")); } catch { return {}; }
+}
+function writeFichas(f: Record<string, Record<string, unknown>>) {
+  fs.mkdirSync(HOME, { recursive: true });
+  fs.writeFileSync(FICHAS, JSON.stringify(f, null, 1));
+}
+
 
 type Fiscal = { ncm?: string; cest?: string; origem?: string };
 type Config = {
@@ -154,12 +163,56 @@ async function abrir(modelo: string): Promise<ExcelJS.Workbook> {
   return wb;
 }
 
-function resolverModelo(modelo?: string): string {
-  const m = modelo ?? readConfig().modelo;
-  if (!m) {
-    throw new Error("Informe o caminho do modelo de planilha do UpSeller (modelo). Ele fica guardado para as próximas vezes.");
+const EXPAND = (p: string) => (p.startsWith("~") ? path.join(os.homedir(), p.slice(1)) : p);
+
+// O modelo pode ser: um arquivo .xlsx, uma pasta (vale o .xlsx mais recente
+// com cara de modelo) ou nada (usa o guardado; se não houver, procura em
+// Downloads, Área de Trabalho e OneDrive o modelo baixado do UpSeller).
+function modeloMaisRecente(dir: string): string | undefined {
+  let melhor: { f: string; t: number } | undefined;
+  try {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (!e.isFile() || !/\.xlsx$/i.test(e.name) || e.name.startsWith("~$")) continue;
+      if (/^importar-upseller_/i.test(e.name)) continue;
+      const f = path.join(dir, e.name);
+      const t = fs.statSync(f).mtimeMs;
+      const pontos = /(modelo|template|produto|import|criar|sku)/i.test(e.name) ? 1e15 : 0;
+      if (!melhor || t + pontos > melhor.t) melhor = { f, t: t + pontos };
+    }
+  } catch {
+    /* pasta inexistente */
   }
-  return m.startsWith("~") ? path.join(os.homedir(), m.slice(1)) : m;
+  return melhor?.f;
+}
+
+function resolverModelo(modelo?: string): string {
+  const dado = modelo ? EXPAND(modelo) : undefined;
+  if (dado && fs.existsSync(dado) && fs.statSync(dado).isDirectory()) {
+    const f = modeloMaisRecente(dado);
+    if (f) return f;
+  } else if (dado) {
+    return dado;
+  }
+  const guardado = readConfig().modelo;
+  if (guardado && fs.existsSync(guardado)) return guardado;
+  const home = os.homedir();
+  const pastas = [
+    path.join(home, "Downloads"),
+    path.join(home, "Desktop"),
+    path.join(home, "OneDrive", "Área de Trabalho"),
+    path.join(home, "OneDrive", "Desktop"),
+    path.join(home, "OneDrive", "Downloads"),
+  ];
+  let achado: { f: string; t: number } | undefined;
+  for (const d of pastas) {
+    const f = modeloMaisRecente(d);
+    if (f) {
+      const t = fs.statSync(f).mtimeMs;
+      if (!achado || t > achado.t) achado = { f, t };
+    }
+  }
+  if (achado) return achado.f;
+  throw new Error("Não achei o modelo de planilha do UpSeller (baixe em Produtos do Armazém > Importar > Baixar o Modelo).");
 }
 
 // --- Servidor --------------------------------------------------------------
@@ -215,6 +268,8 @@ const produto = z.object({
   categoria: z.string().optional(),
   apelido: z.string().optional(),
   marca: z.string().optional(),
+  descricao: z.string().optional().describe("Descrição do anúncio (fica na ficha, o modelo não tem coluna)"),
+  caracteristicas: z.record(z.string(), z.string()).optional().describe("Ficha técnica {nome: valor}"),
   estoque: z.number().optional(),
   preco_varejo: z.number().optional(),
 });
@@ -271,8 +326,14 @@ server.registerTool(
       const m = acharCabecalho(wb, aba);
 
       // Primeira linha livre abaixo do cabeçalho (ignora linhas vazias).
-      let linha = m.linhaCab + 1;
-      while (linha <= m.ws.rowCount && m.ws.getRow(linha).hasValues) linha++;
+      // Apaga linhas de exemplo que vêm no modelo (ex.: "A001-red-xs / Cell Phone Oppo")
+      // para não serem importadas junto com os produtos reais.
+      for (let r = m.linhaCab + 1; r <= m.ws.rowCount; r++) {
+        const row = m.ws.getRow(r);
+        if (row.hasValues) row.eachCell({ includeEmpty: false }, (c) => { c.value = null; });
+      }
+      const linha0 = m.linhaCab + 1;
+      let linha = linha0;
 
       const semColuna = new Set<string>();
       for (const p of produtos) {
@@ -321,6 +382,17 @@ server.registerTool(
       const saida = path.join(pasta, `importar-upseller_${carimbo}.xlsx`);
       await wb.xlsx.writeFile(saida);
       writeConfig({ ...readConfig(), modelo: caminho });
+      // Ficha por SKU (descrição, marca, características, GTIN, medidas) para o
+      // plugin do Mercado Livre usar depois sem pesquisar de novo.
+      const fichas = readFichas();
+      for (const p of produtos) {
+        fichas[p.sku] = {
+          titulo: p.titulo, marca: p.marca, descricao: p.descricao, caracteristicas: p.caracteristicas,
+          gtin: p.gtin, ncm: p.ncm, peso_g: p.peso_g, comprimento_cm: p.comprimento_cm,
+          largura_cm: p.largura_cm, altura_cm: p.altura_cm, custo: p.custo, fornecedor: p.fornecedor,
+        };
+      }
+      writeFichas(fichas);
 
       return text({
         gerado: true,
@@ -400,6 +472,15 @@ server.registerTool(
     writeConfig({ ...readConfig(), ultimo_sku });
     return text({ ultimo_sku });
   }
+);
+
+server.registerTool(
+  "ficha",
+  {
+    description: "Ficha guardada de um SKU (título, marca, descrição, características, GTIN, medidas, custo). Use ao anunciar no Mercado Livre para não pesquisar de novo.",
+    inputSchema: { sku: z.string() },
+  },
+  async ({ sku }) => text(readFichas()[sku] ?? { erro: "sem ficha para este SKU" })
 );
 
 await server.connect(new StdioServerTransport());

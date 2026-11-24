@@ -54,6 +54,16 @@ preço = (custo + lucro + custo fixo do ML + entrega) / (1 − tarifa% do ML −
 - No **envio Flex**, some R$ 3 por venda.
 - Se o produto for **kit ou caixa**, o custo é o custo unitário vezes a quantidade.
 - Mostre uma tabela por variação com: custo | lucro | tarifa ML | custo fixo | entrega | NF 6% | preço final.
+- **Aviso:** `get_listing_prices` mostra a tarifa em %, mas não o custo de envio que o ML desconta do vendedor. Ele aparece na Gestão de anúncios como "Envio por conta do comprador – A pagar R$ x". Hoje é cerca de R$ 6,85 a R$ 6,95 em produto leve abaixo de R$ 79 e muda com peso e tamanho. Ele entra como "entrega" na fórmula; sem ele o preço sai errado e dá prejuízo. O valor real só aparece na tela do ML, então use a conferência abaixo.
+
+## Conferir o preço depois de publicar (obrigatório)
+
+- Depois do `create_item`, abra a Gestão de anúncios (`https://vendedores.mercadolivre.com.br/anuncios?search=<id do anúncio>`) e leia a tarifa, o envio e o "Você recebe".
+- Confira o lucro: Você recebe − custo − 6% do preço − R$ 3 do Flex.
+- Se o lucro não bater com o pedido, refaça o preço com o envio real e corrija com `update_item`, passando o atacado de novo. Depois confira outra vez.
+- Fórmula do refazer: preço = (custo + lucro + envio real + 3) / (1 − tarifa% − 0,06).
+- Se um produto parecido já foi anunciado hoje, use o envio dele como ponto de partida para acertar o preço de primeira.
+- Só diga que o preço está certo depois dessa conferência e informe o "Você recebe" na resposta final.
 
 ## Conferir o preço depois de publicar (obrigatório)
 
@@ -92,3 +102,5 @@ lucro = Você recebe − custo − 6% do preço − R$ 3 (Flex)
 ## Se a conta não estiver conectada
 
 Chame `connect_account`. Na primeira vez, ela abre no navegador uma página do próprio computador onde o usuário digita o App ID e o Client Secret. **Nunca peça esses dados no chat.** Em seguida, abre a página do Mercado Livre, e o usuário só entra na conta e clica em permitir.
+
+Se o produto tem SKU do UpSeller, chame antes a tool `ficha` (plugin UpSeller): traz descrição, marca, características, GTIN e medidas já pesquisados; use-os e não pesquise de novo.
