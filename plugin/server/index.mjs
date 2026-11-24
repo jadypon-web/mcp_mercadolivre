@@ -22078,6 +22078,9 @@ function norm(s) {
 function expandPath(p) {
   return p.startsWith("~") ? path4.join(os2.homedir(), p.slice(1)) : p;
 }
+function isDirEntry(dir, e) {
+  return e.isDirectory() || e.isSymbolicLink() && isDir(path4.join(dir, e.name));
+}
 function isDir(p) {
   try {
     return fs4.statSync(p).isDirectory();
@@ -22101,11 +22104,24 @@ function findPhotosDir() {
     return photosDirCache;
   }
   const home = os2.homedir();
+  for (const base of [process.env.OneDrive, process.env.OneDriveConsumer, process.env.OneDriveCommercial, path4.join(home, "OneDrive")]) {
+    if (!base) continue;
+    for (const desk of ["\xC1rea de Trabalho", "Desktop"]) {
+      const d = path4.join(base, desk);
+      for (const e of listDir(d)) {
+        const n = norm(e.name);
+        if (isDirEntry(d, e) && n.includes("foto") && n.includes("produto")) {
+          photosDirCache = path4.join(d, e.name);
+          return photosDirCache;
+        }
+      }
+    }
+  }
   const queue = [{ dir: home, depth: 0 }];
   while (queue.length > 0) {
     const { dir, depth } = queue.shift();
     for (const e of listDir(dir)) {
-      if (!e.isDirectory()) continue;
+      if (!isDirEntry(dir, e)) continue;
       const name = norm(e.name);
       if (name.startsWith(".") || SKIP_DIRS.has(name)) continue;
       if (name.includes("foto") && name.includes("produto")) {

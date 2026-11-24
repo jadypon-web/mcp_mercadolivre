@@ -29,6 +29,10 @@ export function expandPath(p: string): string {
   return p.startsWith("~") ? path.join(os.homedir(), p.slice(1)) : p;
 }
 
+function isDirEntry(dir: string, e: fs.Dirent): boolean {
+  return e.isDirectory() || (e.isSymbolicLink() && isDir(path.join(dir, e.name)));
+}
+
 function isDir(p: string): boolean {
   try {
     return fs.statSync(p).isDirectory();
@@ -57,11 +61,25 @@ export function findPhotosDir(): string | null {
     return photosDirCache;
   }
   const home = os.homedir();
+  // Atalhos comuns no Windows: Área de Trabalho dentro do OneDrive.
+  for (const base of [process.env.OneDrive, process.env.OneDriveConsumer, process.env.OneDriveCommercial, path.join(home, "OneDrive")]) {
+    if (!base) continue;
+    for (const desk of ["Área de Trabalho", "Desktop"]) {
+      const d = path.join(base, desk);
+      for (const e of listDir(d)) {
+        const n = norm(e.name);
+        if (isDirEntry(d, e) && n.includes("foto") && n.includes("produto")) {
+          photosDirCache = path.join(d, e.name);
+          return photosDirCache;
+        }
+      }
+    }
+  }
   const queue: Array<{ dir: string; depth: number }> = [{ dir: home, depth: 0 }];
   while (queue.length > 0) {
     const { dir, depth } = queue.shift()!;
     for (const e of listDir(dir)) {
-      if (!e.isDirectory()) continue;
+      if (!isDirEntry(dir, e)) continue;
       const name = norm(e.name);
       if (name.startsWith(".") || SKIP_DIRS.has(name)) continue;
       if (name.includes("foto") && name.includes("produto")) {
