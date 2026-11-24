@@ -26,6 +26,8 @@ import {
 } from "./safety.js";
 import { enforceTokenPermissions, loadTokens } from "./token-store.js";
 import { runAuthFlow } from "./auth-flow.js";
+import { resolvePictureRefs, findPhotosDir } from "./photos.js";
+import { getPreset, savePreset, listPresets } from "./presets.js";
 import {
   attributeInput,
   buildAttributes,
@@ -793,7 +795,7 @@ registerTool(
   "create_item",
   {
     description:
-      "Create and PUBLISH a COMPLETE new listing on Mercado Livre — real write operation: the item becomes public and fees apply when it sells. Confirm the details with the user first. Always send package (embalagem: cm and grams). Flow: (1) predict_category; (2) get_category_attributes and fill EVERY fillable attribute (required ones are checked here before sending; empty optional ones are reported); (3) optionally get_listing_prices; (4) create_item with title (or family_name), price, stock, description, pictures, attributes, warranty, seller_sku and, when the product has options like color/size, variations. Pictures accept public URLs or ids from upload_picture. Accounts on Meli's 'User Products' model publish with family_name instead of title — this is detected automatically. After publishing, the tool re-reads the listing and returns a quality report listing anything still empty (description, pictures, warranty, SKU, attributes) so it can be fixed with update_item right away.",
+      "Create and PUBLISH a COMPLETE new listing on Mercado Livre in ONE call — no confirmation step: when the user handed over a product to list, publish it. Handles everything: attributes (required ones are checked first), description, pictures, warranty, SKU, package (embalagem, required), Flex, wholesale prices, optional catalog link (catalog_product_id) and a quality check. Pictures: pass photos_folder (a product folder name or path inside the user's photos folder, e.g. '9003') and ALL images in it are uploaded straight from disk in name order — never send photos through the chat. pictures also accepts file names, local paths, URLs or picture ids. preset applies saved attributes of a category (see save_category_preset). Accounts on the 'User Products' model publish with family_name instead of title (detected automatically). Returns only: id, link, status and what is still missing.",
     inputSchema: {
       title: z
         .string()
@@ -839,8 +841,20 @@ registerTool(
         .describe("Plain-text description (no HTML, no emojis). Required: listings without description lose quality"),
       pictures: z
         .array(z.string())
-        .min(1)
-        .describe("Pictures in display order: public image URLs and/or picture ids returned by upload_picture"),
+        .optional()
+        .describe("Pictures in display order: image file names or local paths (read from disk), public URLs or picture ids"),
+      photos_folder: z
+        .string()
+        .optional()
+        .describe("Product folder inside the user's photos folder (e.g. the SKU '9003'), or a full folder path. All images in it are uploaded in name order, before any in pictures"),
+      catalog_product_id: z
+        .string()
+        .optional()
+        .describe("Catalog product id (from search_catalog): the listing is linked to the catalog right after publishing"),
+      preset: z
+        .string()
+        .optional()
+        .describe("Name of a saved category preset (save_category_preset): its attributes are used as defaults; attributes you pass override them"),
       attributes: z
         .array(attributeInput)
         .optional()
@@ -893,8 +907,16 @@ registerTool(
         return fail(new Error("Provide available_quantity (or variations, each with its own stock)."));
       }
 
+      const presetAttrs = input.preset ? getPreset(input.preset)?.attributes : undefined;
+      if (input.preset && !presetAttrs) {
+        return fail(new Error(`Preset "${input.preset}" not found. Existing: ${listPresets().map((p) => p.key).join(", ") || "none"}.`));
+      }
+      const resolvedPictures = await resolvePictureRefs(input.pictures, input.photos_folder);
+      if (resolvedPictures.length === 0) {
+        return fail(new Error("Provide photos_folder or pictures (at least one photo)."));
+      }
       const attributes = buildAttributes(
-        [...(input.attributes ?? []), ...packageAttributes(input.package)],
+        [...(presetAttrs ?? []), ...(input.attributes ?? []), ...packageAttributes(input.package)],
         input.seller_sku
       );
       const hasPackage = (attributes ?? []).some((a) => a.id === "SELLER_PACKAGE_WEIGHT");
@@ -950,7 +972,7 @@ registerTool(
         body.title = title;
       }
 
-      let pictureList = [...input.pictures];
+      let pictureList = [...resolvedPictures];
       if (input.variations?.length) {
         const built = buildVariations(input.variations, input.price);
         body.variations = built.variations;
@@ -1008,24 +1030,35 @@ registerTool(
         }
       }
 
+      if (input.catalog_product_id) {
+        try {
+          await meliPost("/items/catalog_listings", {
+            item_id: itemId,
+            catalog_product_id: input.catalog_product_id,
+          });
+          followUps.push(`catalog ${input.catalog_product_id}`);
+        } catch (err) {
+          followUps.push(`catalog failed: ${errText(err)}`);
+        }
+      }
       const result: Record<string, unknown> = {
         id: itemId,
-        title: created.title,
-        family_name: created.family_name,
+        link: created.permalink,
         status: created.status,
-        permalink: created.permalink,
-        listing_model: useFamilyName ? "user_products (family_name)" : "classic (title)",
-        warnings: created.warnings ?? [],
-        follow_ups: followUps,
+        warnings: created.warnings,
+        done: followUps,
       };
       if (input.check_quality) {
         try {
-          result.quality = await checkListingQuality(itemId);
+          const q = await checkListingQuality(itemId);
+          result.complete = q.complete;
+          if (!q.complete) result.missing = q.problems;
+          if (q.health !== undefined) result.health = q.health;
         } catch (err) {
           result.quality = `quality check failed: ${(err as Error).message}`;
         }
       } else if (missing.length > 0) {
-        result.empty_attributes = missing;
+        result.empty_attributes = missing.map((m) => m.id);
       }
       return ok(result);
     } catch (err) {
@@ -1067,7 +1100,11 @@ registerTool(
       pictures: z
         .array(z.string())
         .optional()
-        .describe("Pictures (public URLs or ids from upload_picture). Replaces the current pictures unless append_pictures=true"),
+        .describe("Pictures: file names or local paths (read from disk), public URLs or picture ids. Replaces the current pictures unless append_pictures=true"),
+      photos_folder: z
+        .string()
+        .optional()
+        .describe("Product folder inside the photos folder (e.g. SKU '9003'): all its images are uploaded in name order"),
       append_pictures: z
         .boolean()
         .optional()
@@ -1148,13 +1185,14 @@ registerTool(
       );
       if (saleTerms) body.sale_terms = saleTerms;
 
-      if (input.pictures !== undefined) {
+      if (input.pictures !== undefined || input.photos_folder !== undefined) {
         const existing = input.append_pictures
           ? ((current.pictures as Array<{ id?: string }>) ?? [])
               .map((p) => p.id)
               .filter((id): id is string => Boolean(id))
           : [];
-        body.pictures = [...existing.map((id) => ({ id })), ...toPictures(input.pictures)];
+        const resolved = await resolvePictureRefs(input.pictures, input.photos_folder);
+        body.pictures = [...existing.map((id) => ({ id })), ...toPictures(resolved)];
       }
 
       if (Object.keys(body).length > 0) {
@@ -1402,18 +1440,8 @@ registerTool(
           source: url,
         });
       } else {
-        const localPath = expandHome(file_path!);
-        const buffer = await readFile(localPath);
-        const form = new FormData();
-        form.append(
-          "file",
-          new Blob([new Uint8Array(buffer)]),
-          path.basename(localPath)
-        );
-        picture = await meliPostForm<Record<string, unknown>>(
-          "/pictures",
-          form
-        );
+        const [resolved] = await resolvePictureRefs([file_path!], undefined);
+        return ok({ id: resolved });
       }
       // Only the id matters for create_item; the 17 size variations were
       // just wasting tokens.
@@ -2110,10 +2138,41 @@ registerTool(
 );
 
 registerTool(
+  "save_category_preset",
+  {
+    description:
+      "Save the attributes that repeat for every product of a category (e.g. mounting type, finish, faucet control) under a short name, so create_item can reuse them with preset=<name> and nobody has to re-read or re-send the whole category list. Only save fixed values; product-specific ones (brand, model, GTIN, size) must still be passed on each create_item. Calling it again with the same key replaces the preset. With no attributes it lists the saved presets.",
+    inputSchema: {
+      key: z.string().optional().describe("Preset name, e.g. 'torneira-jardim'"),
+      category_id: z.string().optional().describe("Category id the preset belongs to"),
+      attributes: z.array(attributeInput).optional().describe("Fixed attributes of the category"),
+    },
+  },
+  async ({ key, category_id, attributes }) => {
+    try {
+      if (!key || !category_id || !attributes?.length) {
+        return ok({ presets: listPresets(), photos_folder: findPhotosDir() ?? "not found" });
+      }
+      savePreset(key, {
+        category_id,
+        attributes: attributes.map((a) => ({
+          id: a.id,
+          ...(a.value_id !== undefined ? { value_id: a.value_id } : {}),
+          ...(a.value_name !== undefined ? { value_name: a.value_name } : {}),
+        })),
+      });
+      return ok({ saved: key, attributes: attributes.length });
+    } catch (err) {
+      return fail(err);
+    }
+  }
+);
+
+registerTool(
   "create_catalog_listing",
   {
     description:
-      "Opt one of your EXISTING listings into catalog competition by linking it to a catalog product — this is a real write operation. The listing keeps its identity but starts competing for the buy box under catalog rules: display and sales conditions change (e.g. free-shipping and price rules may differ from a standalone listing). Confirm with the user before calling. Flow: search_catalog → get_catalog_product (check the winner's price) → create_catalog_listing. The item must belong to the authenticated seller and match the catalog product. Returns the linked item id, status and permalink.",
+      "Opt one of your EXISTING listings into catalog competition by linking it to a catalog product — this is a real write operation. The listing keeps its identity but starts competing for the buy box under catalog rules: display and sales conditions change (e.g. free-shipping and price rules may differ from a standalone listing). Flow: search_catalog → get_catalog_product (check the winner's price) → create_catalog_listing. The item must belong to the authenticated seller and match the catalog product. Returns the linked item id, status and permalink.",
     inputSchema: {
       item_id: z
         .string()
@@ -2501,7 +2560,7 @@ registerTool(
   "add_item_to_promotion",
   {
     description:
-      "Submit one of your items to a promotion campaign with the offered deal price — this is a REAL write operation: if Meli approves, the item starts being sold at the promotional price for the campaign duration. Confirm the price with the user before calling. Flow: get_promotions (find a 'candidate' campaign) → add_item_to_promotion with the deal_price within the campaign's allowed range. Returns the submission result with item id and status.",
+      "Submit one of your items to a promotion campaign with the offered deal price — this is a REAL write operation: if Meli approves, the item starts being sold at the promotional price for the campaign duration. Flow: get_promotions (find a 'candidate' campaign) → add_item_to_promotion with the deal_price within the campaign's allowed range. Returns the submission result with item id and status.",
     inputSchema: {
       item_id: z
         .string()
