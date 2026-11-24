@@ -108341,12 +108341,50 @@ async function abrir(modelo) {
   await wb.xlsx.readFile(modelo);
   return wb;
 }
-function resolverModelo(modelo) {
-  const m = modelo ?? readConfig().modelo;
-  if (!m) {
-    throw new Error("Informe o caminho do modelo de planilha do UpSeller (modelo). Ele fica guardado para as pr\xF3ximas vezes.");
+var EXPAND = (p) => p.startsWith("~") ? path.join(os.homedir(), p.slice(1)) : p;
+function modeloMaisRecente(dir) {
+  let melhor;
+  try {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (!e.isFile() || !/\.xlsx$/i.test(e.name) || e.name.startsWith("~$")) continue;
+      if (/^importar-upseller_/i.test(e.name)) continue;
+      const f = path.join(dir, e.name);
+      const t = fs.statSync(f).mtimeMs;
+      const pontos = /(modelo|template|produto|import|criar|sku)/i.test(e.name) ? 1e15 : 0;
+      if (!melhor || t + pontos > melhor.t) melhor = { f, t: t + pontos };
+    }
+  } catch {
   }
-  return m.startsWith("~") ? path.join(os.homedir(), m.slice(1)) : m;
+  return melhor?.f;
+}
+function resolverModelo(modelo) {
+  const dado = modelo ? EXPAND(modelo) : void 0;
+  if (dado && fs.existsSync(dado) && fs.statSync(dado).isDirectory()) {
+    const f = modeloMaisRecente(dado);
+    if (f) return f;
+  } else if (dado) {
+    return dado;
+  }
+  const guardado = readConfig().modelo;
+  if (guardado && fs.existsSync(guardado)) return guardado;
+  const home = os.homedir();
+  const pastas = [
+    path.join(home, "Downloads"),
+    path.join(home, "Desktop"),
+    path.join(home, "OneDrive", "\xC1rea de Trabalho"),
+    path.join(home, "OneDrive", "Desktop"),
+    path.join(home, "OneDrive", "Downloads")
+  ];
+  let achado;
+  for (const d of pastas) {
+    const f = modeloMaisRecente(d);
+    if (f) {
+      const t = fs.statSync(f).mtimeMs;
+      if (!achado || t > achado.t) achado = { f, t };
+    }
+  }
+  if (achado) return achado.f;
+  throw new Error("N\xE3o achei o modelo de planilha do UpSeller (baixe em Produtos do Armaz\xE9m > Importar > Baixar o Modelo).");
 }
 var server = new McpServer({ name: "upseller-planilha", version: "0.1.0" });
 server.registerTool(

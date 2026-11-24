@@ -2,7 +2,7 @@
   "manifest_version": "0.2",
   "name": "upseller-planilha",
   "display_name": "UpSeller - Planilha de Cadastro (JadyponHidro)",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Monta a planilha de importação de produtos do UpSeller (para quem não tem a API) a partir dos dados pesquisados pelo Claude.",
   "author": { "name": "JadyponHidro" },
   "repository": { "type": "git", "url": "https://github.com/jadypon-web/mcp_mercadolivre" },
