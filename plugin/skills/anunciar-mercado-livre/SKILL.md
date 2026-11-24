@@ -56,11 +56,11 @@ preço = (custo + lucro + custo fixo do ML + entrega) / (1 − tarifa% do ML −
 
 ## Economizar tokens
 
-- Em `get_category_attributes`, as listas de opções vêm curtas (25). Para achar uma opção específica, use `value_filter` em vez de aumentar `max_values`.
-- Não rode `check_listing_quality` depois do `create_item`/`update_item`: o resultado já diz se está completo e o que falta.
-- **Atalho por categoria:** na primeira vez de uma categoria, leia `get_category_attributes` e guarde com `save_category_preset` as características fixas (tipo de montagem, acabamento etc.). Nas próximas, passe `preset` no `create_item` e pule a leitura da categoria; só envie o que muda por produto (marca, modelo, medida, GTIN).
-- Não abra o UpSeller pelo Chrome se o usuário já mandou os dados ou uma planilha exportada.
-- Não repita o anúncio inteiro no chat. Resposta final: link, preço, e o que ficou pendente.
+- Não pesquise nem releia o que já sabe. Categoria já usada: `preset` no `create_item` e nada de `get_category_attributes`. Categoria nova: leia uma vez (`value_filter` em vez de aumentar `max_values`) e grave as características fixas com `save_category_preset`.
+- Não rode `check_listing_quality` depois de criar ou editar: o resultado já diz se está completo.
+- Não ligue ao catálogo (`get_catalog_product` só sem `full`, se precisar consultar).
+- Não abra o UpSeller pelo Chrome; o cadastro lá é a skill `cadastrar-upseller`.
+- Resposta final: link, preço, atacado e pendências. Não repita o anúncio no chat.
 
 ## Passo a passo para criar
 

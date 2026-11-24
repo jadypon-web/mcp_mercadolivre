@@ -9,19 +9,9 @@ import { MeliApiError, meliDelete, meliGet, meliPost } from "./meli-client.js";
 
 export const attributeInput = z
   .object({
-    id: z.string().describe("Attribute id, e.g. 'BRAND', 'MODEL', 'GTIN', 'SELLER_SKU'"),
-    value_id: z
-      .string()
-      .optional()
-      .describe(
-        "Id of the allowed value (from get_category_attributes allowed_values). Prefer this for closed-list attributes"
-      ),
-    value_name: z
-      .string()
-      .optional()
-      .describe(
-        "Value as text, e.g. 'Tigre' or '25 mm'. For number+unit attributes write the number and the unit"
-      ),
+    id: z.string(),
+    value_id: z.string().optional().describe("Allowed value id (closed lists)"),
+    value_name: z.string().optional().describe("Text value; with unit when numeric, e.g. '25 mm'"),
   })
   .refine((a) => a.value_id !== undefined || a.value_name !== undefined, {
     message: "Each attribute needs value_id or value_name",
@@ -29,9 +19,7 @@ export const attributeInput = z
 
 export const saleTermInput = z
   .object({
-    id: z
-      .string()
-      .describe("Sale term id, e.g. 'WARRANTY_TYPE', 'WARRANTY_TIME', 'MANUFACTURING_TIME'"),
+    id: z.string(),
     value_id: z.string().optional(),
     value_name: z.string().optional(),
   })
@@ -43,26 +31,18 @@ export const variationInput = z.object({
   attribute_combinations: z
     .array(attributeInput)
     .min(1)
-    .describe(
-      "What makes this variation different, e.g. [{id:'COLOR', value_name:'Branco'}]. Only attributes with allow_variations=true"
-    ),
-  available_quantity: z.number().int().min(0).describe("Stock of this variation"),
+    .describe("What differs, e.g. [{id:'COLOR', value_name:'Branco'}]"),
+  available_quantity: z.number().int().min(0),
   price: z
     .number()
     .positive()
-    .optional()
-    .describe("Price of this variation (defaults to the item price)"),
+    .optional(),
   pictures: z
     .array(z.string())
     .optional()
-    .describe(
-      "Pictures of this variation: public URLs or picture ids from upload_picture. They are also added to the item pictures"
-    ),
-  seller_sku: z.string().optional().describe("SKU of this variation (saved as SELLER_SKU)"),
-  attributes: z
-    .array(attributeInput)
-    .optional()
-    .describe("Per-variation attributes with variation_attribute=true, e.g. GTIN"),
+    .describe("Variation pictures (URLs, ids or file names)"),
+  seller_sku: z.string().optional(),
+  attributes: z.array(attributeInput).optional().describe("Per-variation attributes, e.g. GTIN"),
 });
 
 export type AttributeInput = z.infer<typeof attributeInput>;
@@ -454,18 +434,17 @@ export const wholesaleTierInput = z
       .number()
       .int()
       .min(2)
-      .describe("Minimum units for this price, e.g. 3"),
+      ,
     price: z
       .number()
       .positive()
-      .optional()
-      .describe("Unit price from this quantity on"),
+      .optional(),
     discount_percent: z
       .number()
       .gt(0)
       .lt(100)
       .optional()
-      .describe("Or a % off the item's regular price, e.g. 5 for 5%"),
+      .describe("% off regular price (alternative to price)"),
   })
   .refine((t) => (t.price === undefined) !== (t.discount_percent === undefined), {
     message: "Each tier needs exactly one of price or discount_percent",

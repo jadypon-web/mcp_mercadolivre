@@ -737,19 +737,19 @@ const warrantyShape = {
   warranty_type: z
     .string()
     .optional()
-    .describe("Warranty type as Meli names it in MLB: 'Garantia do vendedor', 'Garantia de fábrica' or 'Sem garantia'"),
+    .describe("'Garantia do vendedor' | 'Garantia de fábrica' | 'Sem garantia'"),
   warranty_time: z
     .string()
     .optional()
-    .describe("Warranty duration with unit, e.g. '90 dias', '6 meses', '1 anos'. Omit when 'Sem garantia'"),
+    .describe("e.g. '3 meses'"),
   manufacturing_time: z
     .string()
     .optional()
-    .describe("Extra days before shipping (prazo de disponibilidade), e.g. '5 dias'. Omit when the item ships right away — it lowers exposure"),
+    .describe("e.g. '5 dias'; omit if ships right away"),
   sale_terms: z
     .array(saleTermInput)
     .optional()
-    .describe("Raw sale terms (see get_category_attributes sale_terms). Overrides the warranty/manufacturing shortcuts with the same id"),
+    .describe("Raw sale terms; override the shortcuts"),
 };
 
 const packageShape = {
@@ -761,7 +761,7 @@ const packageShape = {
       weight_g: z.number().positive(),
     })
     .optional()
-    .describe("Shipping package size (embalagem): cm and grams. Mercado Livre requires it. Decimals are rounded UP to whole numbers, as Meli only accepts integers"),
+    .describe("Embalagem, required: cm and grams (rounded up)"),
 };
 
 function packageAttributes(pkg?: {
@@ -783,119 +783,119 @@ const flexWholesaleShape = {
   flex: z
     .boolean()
     .optional()
-    .describe("true = turn on Envios Flex (same-day delivery) for this listing; false = turn it off. The account must already be enabled for Flex"),
+    .describe("Flex on/off"),
   wholesale: z
     .array(wholesaleTierInput)
     .max(5)
     .optional()
-    .describe("Wholesale price table (preço de atacado, shown to business buyers), up to 5 tiers, e.g. [{min_quantity:3, discount_percent:5},{min_quantity:6, discount_percent:8}]. Prices must go down as quantity goes up. On update_item, [] removes the table"),
+    .describe("Preço de atacado, max 5 tiers, e.g. [{min_quantity:3,discount_percent:5}]; [] removes (update_item)"),
 };
 
 registerTool(
   "create_item",
   {
     description:
-      "Create and PUBLISH a COMPLETE new listing on Mercado Livre in ONE call — no confirmation step: when the user handed over a product to list, publish it. Handles everything: attributes (required ones are checked first), description, pictures, warranty, SKU, package (embalagem, required), Flex, wholesale prices, optional catalog link (catalog_product_id) and a quality check. Pictures: pass photos_folder (a product folder name or path inside the user's photos folder, e.g. '9003') and ALL images in it are uploaded straight from disk in name order — never send photos through the chat. pictures also accepts file names, local paths, URLs or picture ids. preset applies saved attributes of a category (see save_category_preset). Accounts on the 'User Products' model publish with family_name instead of title (detected automatically). Returns only: id, link, status and what is still missing.",
+      "Publish a COMPLETE new listing in ONE call, no confirmation. Checks required attributes, sets description, pictures, warranty, SKU, package (required), Flex, wholesale and a quality check. photos_folder = product folder (e.g. SKU) inside the user's photos folder: all images are read from disk; pictures also takes file names, paths, URLs or ids. preset = saved category attributes. User Products accounts use family_name (auto). Returns id, link, status and what is missing.",
     inputSchema: {
       title: z
         .string()
         .max(120)
         .optional()
-        .describe("Listing title. Limit depends on the category (max_title_length, usually 60). Required unless family_name is given"),
+        .describe("Title (or family_name)"),
       family_name: z
         .string()
         .max(120)
         .optional()
-        .describe("Generic product name for accounts on the User Products model (Meli builds the title from it). Defaults to title when the account needs it"),
+        .describe("User Products accounts; defaults to title"),
       category_id: z
         .string()
-        .describe("Category id from predict_category, e.g. 'MLB1055'"),
-      price: z.number().positive().describe("Sale price in currency_id"),
+        ,
+      price: z.number().positive(),
       available_quantity: z
         .number()
         .int()
         .min(1)
         .optional()
-        .describe("Stock quantity. Required when there are no variations (with variations each one has its own stock)"),
+        .describe("Stock (without variations)"),
       condition: z
         .enum(["new", "used", "not_specified"])
         .optional()
         .default("new")
-        .describe("Item condition (default 'new')"),
+        ,
       listing_type_id: z
         .string()
         .optional()
         .default("gold_special")
-        .describe("'gold_special' (Clássico, default) or 'gold_pro' (Premium)"),
+        .describe("gold_special (default) | gold_pro"),
       buying_mode: z
         .string()
         .optional()
         .default("buy_it_now")
-        .describe("Keep 'buy_it_now' unless the user explicitly wants something else"),
+        ,
       currency_id: z
         .string()
         .optional()
-        .describe("ISO currency. Defaults to the site currency (BRL for MLB)"),
+        ,
       description: z
         .string()
-        .describe("Plain-text description (no HTML, no emojis). Required: listings without description lose quality"),
+        .describe("Plain text, required"),
       pictures: z
         .array(z.string())
         .optional()
-        .describe("Pictures in display order: image file names or local paths (read from disk), public URLs or picture ids"),
+        .describe("File names/paths (read from disk), URLs or ids"),
       photos_folder: z
         .string()
         .optional()
-        .describe("Product folder inside the user's photos folder (e.g. the SKU '9003'), or a full folder path. All images in it are uploaded in name order, before any in pictures"),
+        .describe("Folder (e.g. SKU) in the photos folder; all images, by name"),
       catalog_product_id: z
         .string()
         .optional()
-        .describe("Catalog product id (from search_catalog): the listing is linked to the catalog right after publishing"),
+        .describe("Link to catalog after publishing (only if the user asks)"),
       preset: z
         .string()
         .optional()
-        .describe("Name of a saved category preset (save_category_preset): its attributes are used as defaults; attributes you pass override them"),
+        .describe("Saved category preset; your attributes override it"),
       attributes: z
         .array(attributeInput)
         .optional()
-        .describe("Item attributes (características). Include every fillable attribute from get_category_attributes; use value_id for closed lists"),
+        .describe("Características: all fillable ones"),
       seller_sku: z
         .string()
         .optional()
-        .describe("Your internal product code, saved as attribute SELLER_SKU (used by ERPs like UpSeller to link the listing)"),
+        .describe("SELLER_SKU (links to UpSeller)"),
       seller_custom_field: z
         .string()
         .optional()
-        .describe("Free internal reference field (not the SKU)"),
+        ,
       ...warrantyShape,
       ...flexWholesaleShape,
       ...packageShape,
       variations: z
         .array(variationInput)
         .optional()
-        .describe("Variations (e.g. colors or sizes) when one listing sells several options"),
+        ,
       video_id: z
         .string()
         .optional()
-        .describe("Video id from upload_video"),
+        ,
       shipping: z
         .record(z.unknown())
         .optional()
-        .describe("Shipping object, e.g. {mode:'me2', free_shipping:true, local_pick_up:false}"),
+        .describe("e.g. {mode:'me2',free_shipping:true,local_pick_up:false}"),
       tags: z
         .array(z.string())
         .optional()
-        .describe("Extra item tags, e.g. ['immediate_payment']"),
+        ,
       allow_missing_required: z
         .boolean()
         .optional()
         .default(false)
-        .describe("Send even if required attributes are missing (default false: the tool stops and lists them)"),
+        .describe("Send even with required attributes missing"),
       check_quality: z
         .boolean()
         .optional()
         .default(true)
-        .describe("Re-read the listing after publishing and report what is still empty (default true)"),
+        ,
     },
   },
   async (input) => {
@@ -1071,7 +1071,7 @@ registerTool(
   "update_item",
   {
     description:
-      "Edit ANY editable part of an existing listing: price, stock, title/family_name, description, pictures, attributes, SKU, warranty and other sale terms, shipping, variations, video and listing type (Clássico→Premium). Only the fields you pass are changed. Notes: title/family_name can only change while the item has no sales; pictures REPLACE the current set unless append_pictures=true; listing type can usually be changed only once; category cannot be changed. Each part is applied separately and the result says which parts succeeded. Ends with a quality report of what is still empty.",
+      "Edit any part of a listing (price, stock, title, description, pictures, attributes, SKU, warranty, shipping, variations, Flex, wholesale, package, listing type); only passed fields change; each part is applied separately and reported. Title only without sales; pictures replace unless append_pictures. Returns what was applied and what is missing.",
     inputSchema: {
       item_id: z
         .string()
@@ -1082,51 +1082,51 @@ registerTool(
         .int()
         .min(0)
         .optional()
-        .describe("New stock quantity (items without variations)"),
+        ,
       title: z
         .string()
         .max(120)
         .optional()
-        .describe("New title; on User Products listings it is applied as family_name. Only while the item has no sales"),
+        .describe("Only without sales"),
       family_name: z
         .string()
         .max(120)
         .optional()
-        .describe("New family_name (User Products listings). Only while there are no sales"),
+        .describe("Only without sales"),
       description: z
         .string()
         .optional()
-        .describe("New plain-text description (replaces the current one)"),
+        ,
       pictures: z
         .array(z.string())
         .optional()
-        .describe("Pictures: file names or local paths (read from disk), public URLs or picture ids. Replaces the current pictures unless append_pictures=true"),
+        .describe("File names/paths, URLs or ids; replace unless append_pictures"),
       photos_folder: z
         .string()
         .optional()
-        .describe("Product folder inside the photos folder (e.g. SKU '9003'): all its images are uploaded in name order"),
+        .describe("Folder (e.g. SKU) in the photos folder"),
       append_pictures: z
         .boolean()
         .optional()
         .default(false)
-        .describe("Keep the current pictures and add these after them"),
+        ,
       attributes: z
         .array(attributeInput)
         .optional()
-        .describe("Attributes to set or change; attributes not listed are kept"),
-      seller_sku: z.string().optional().describe("Set the SKU (SELLER_SKU attribute)"),
-      seller_custom_field: z.string().optional().describe("Free internal reference field"),
+        ,
+      seller_sku: z.string().optional(),
+      seller_custom_field: z.string().optional(),
       ...warrantyShape,
       ...flexWholesaleShape,
       ...packageShape,
       shipping: z
         .record(z.unknown())
         .optional()
-        .describe("Shipping object, e.g. {free_shipping:true}"),
+        ,
       variations: z
         .array(z.record(z.unknown()))
         .optional()
-        .describe("Full variations array as Meli expects it. Existing variations must keep their 'id'; omitted ones are deleted. Read get_item first"),
+        .describe("Full array; keep existing ids, omitted ones are deleted"),
       video_id: z
         .string()
         .optional()
@@ -1134,12 +1134,12 @@ registerTool(
       listing_type_id: z
         .string()
         .optional()
-        .describe("Change exposure: 'gold_special' (Clássico) or 'gold_pro' (Premium)"),
+        ,
       check_quality: z
         .boolean()
         .optional()
         .default(true)
-        .describe("Report what is still empty after the update (default true)"),
+        ,
     },
   },
   async (input) => {
@@ -2084,14 +2084,13 @@ registerTool(
   "get_catalog_product",
   {
     description:
-      "Get full details of a catalog product, including who is currently winning the buy box (buy_box_winner: price and seller id). Use this after search_catalog to study the competition before linking your listing with create_catalog_listing — the winner's price is the reference your listing must beat (along with reputation and shipping) to take the buy box. Returns name, attributes, picture URLs, main features and the buy box winner when present.",
+      "Catalog product details: name, attributes and buy box winner. Pictures and main features only with full=true (they cost many tokens).",
     inputSchema: {
-      product_id: z
-        .string()
-        .describe("Catalog product id from search_catalog, e.g. 'MLB15171222'"),
+      product_id: z.string(),
+      full: z.boolean().optional(),
     },
   },
-  async ({ product_id }) => {
+  async ({ product_id, full }) => {
     try {
       const p = await meliGet<Record<string, unknown>>(
         `/products/${product_id}`
@@ -2120,8 +2119,8 @@ registerTool(
         name: p.name,
         domain_id: p.domain_id,
         attributes,
-        pictures,
-        main_features: features,
+        pictures: full ? pictures : undefined,
+        main_features: full ? features : undefined,
         buy_box_winner: winner
           ? {
               item_id: winner.item_id,
@@ -2162,6 +2161,55 @@ registerTool(
         })),
       });
       return ok({ saved: key, attributes: attributes.length });
+    } catch (err) {
+      return fail(err);
+    }
+  }
+);
+
+registerTool(
+  "dados_para_upseller",
+  {
+    description:
+      "Compact rows (sku, title, gtin, brand, weight in g, size in cm, first picture) read from your own listings, ready to pass to gerar_planilha of the upseller-planilha plugin. Avoids researching again what the listing already has. Cost and fiscal data are not in the listing.",
+    inputSchema: { item_ids: z.array(z.string()).min(1).max(20) },
+  },
+  async ({ item_ids }) => {
+    try {
+      const data = await meliGet<Array<{ code: number; body: Record<string, unknown> }>>(
+        `/items?ids=${item_ids.join(",")}&attributes=id,title,attributes,pictures,seller_custom_field`
+      );
+      const num = (v: unknown, unit: "g" | "cm"): number | undefined => {
+        const m = String(v ?? "").replace(",", ".").match(/([\d.]+)\s*(kg|g|mm|cm|m)?/i);
+        if (!m) return undefined;
+        let n = Number(m[1]);
+        const u = (m[2] ?? unit).toLowerCase();
+        if (u === "kg") n *= 1000;
+        if (u === "mm") n /= 10;
+        if (u === "m") n *= 100;
+        return Math.ceil(n);
+      };
+      const rows = data.map((r) => {
+        if (r.code !== 200) return { item_id: r.body?.id, erro: `HTTP ${r.code}` };
+        const b = r.body;
+        const at = new Map(
+          ((b.attributes as Array<Record<string, unknown>>) ?? []).map((a) => [String(a.id), a.value_name])
+        );
+        const pics = (b.pictures as Array<{ secure_url?: string; url?: string }>) ?? [];
+        return {
+          item_id: b.id,
+          sku: at.get("SELLER_SKU") ?? b.seller_custom_field,
+          titulo: b.title,
+          gtin: at.get("GTIN"),
+          marca: at.get("BRAND"),
+          peso_g: num(at.get("SELLER_PACKAGE_WEIGHT"), "g"),
+          comprimento_cm: num(at.get("SELLER_PACKAGE_LENGTH"), "cm"),
+          largura_cm: num(at.get("SELLER_PACKAGE_WIDTH"), "cm"),
+          altura_cm: num(at.get("SELLER_PACKAGE_HEIGHT"), "cm"),
+          imagem: pics[0]?.secure_url ?? pics[0]?.url,
+        };
+      });
+      return ok({ rows });
     } catch (err) {
       return fail(err);
     }
