@@ -50,9 +50,20 @@ O usuário informa o lucro a cada anúncio. Calcule pela fórmula:
 preço = (custo + lucro + custo fixo do ML + entrega) / (1 − tarifa% do ML − 0,06)
 
 - A **tarifa** vem de `get_listing_prices` com a categoria e o tipo de anúncio. Nunca use valor de memória.
+- **Cuidado:** `get_listing_prices` NÃO mostra o custo de envio que o ML desconta do vendedor (aparece como "Envio por conta do comprador – A pagar R$ x" na Gestão de anúncios, hoje cerca de R$ 6,85 a R$ 6,95 em produtos leves abaixo de R$ 79; muda com peso e tamanho). Ele entra como "entrega" na fórmula e sem ele o preço sai errado e o usuário tem prejuízo. O valor real só se vê na tela do ML, então use o passo de conferência abaixo.
 - No **envio Flex**, some R$ 3 por venda.
 - Se o produto for **kit ou caixa**, o custo é o custo unitário vezes a quantidade.
 - Mostre uma tabela por variação com: custo | lucro | tarifa ML | custo fixo | entrega | NF 6% | preço final.
+
+## Conferir o preço depois de publicar (obrigatório)
+
+Logo depois de `create_item`, abra a Gestão de anúncios (`https://vendedores.mercadolivre.com.br/anuncios?search=<id do anúncio>`) e leia três valores: tarifa "A pagar", envio "A pagar" e **"Você recebe"**. Confira:
+
+lucro = Você recebe − custo − 6% do preço − R$ 3 (Flex)
+
+- Se o lucro não for o pedido pelo usuário, refaça o preço com o envio real (preço = (custo + lucro + envio real + 3) / (1 − tarifa% − 0,06)), corrija com `update_item` (passando o atacado de novo) e confira de novo.
+- Se um produto parecido já foi anunciado hoje, use o envio real dele como ponto de partida para calcular o preço já certo de primeira (confira mesmo assim).
+- Só diga ao usuário que o preço está certo depois dessa conferência. Informe o "Você recebe" na resposta final.
 
 ## Economizar tokens
 
