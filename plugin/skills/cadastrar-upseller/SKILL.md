@@ -19,3 +19,5 @@ O usuário importa o arquivo em Produtos do Armazém › Importar. Nunca preench
 1. Primeira vez: `modelo_colunas` com o caminho do modelo baixado em Importar (fica guardado) e `definir_ultimo_sku` com o maior SKU numérico existente. Depois: `proximo_sku`.
 2. Reúna os dados (ordem acima) e chame `gerar_planilha` uma vez.
 3. Resposta curta: caminho do arquivo, uma linha por produto (SKU, título, custo) e só o que veio de pesquisa ou ficou em branco. O SKU do anúncio do Mercado Livre deve ser o mesmo do UpSeller.
+
+Ficha: em `gerar_planilha`, envie também `descricao` (completa, sem nada em branco), `marca` e `caracteristicas` de cada produto. Ficam guardadas por SKU (tool `ficha`) para o anúncio no Mercado Livre. Dado exato não achado: use o de produto parecido, sem perguntar.

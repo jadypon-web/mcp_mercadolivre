@@ -108220,6 +108220,18 @@ import os from "node:os";
 import path from "node:path";
 var HOME = path.join(os.homedir(), ".upseller-planilha");
 var CONFIG = path.join(HOME, "config.json");
+var FICHAS = path.join(HOME, "fichas.json");
+function readFichas() {
+  try {
+    return JSON.parse(fs.readFileSync(FICHAS, "utf8"));
+  } catch {
+    return {};
+  }
+}
+function writeFichas(f) {
+  fs.mkdirSync(HOME, { recursive: true });
+  fs.writeFileSync(FICHAS, JSON.stringify(f, null, 1));
+}
 function readConfig() {
   try {
     return JSON.parse(fs.readFileSync(CONFIG, "utf8"));
@@ -108434,6 +108446,8 @@ var produto = external_exports.object({
   categoria: external_exports.string().optional(),
   apelido: external_exports.string().optional(),
   marca: external_exports.string().optional(),
+  descricao: external_exports.string().optional().describe("Descri\xE7\xE3o do an\xFAncio (fica na ficha, o modelo n\xE3o tem coluna)"),
+  caracteristicas: external_exports.record(external_exports.string(), external_exports.string()).optional().describe("Ficha t\xE9cnica {nome: valor}"),
   estoque: external_exports.number().optional(),
   preco_varejo: external_exports.number().optional()
 });
@@ -108483,8 +108497,14 @@ server.registerTool(
       }
       const wb = await abrir(caminho);
       const m = acharCabecalho(wb, aba);
-      let linha = m.linhaCab + 1;
-      while (linha <= m.ws.rowCount && m.ws.getRow(linha).hasValues) linha++;
+      for (let r = m.linhaCab + 1; r <= m.ws.rowCount; r++) {
+        const row = m.ws.getRow(r);
+        if (row.hasValues) row.eachCell({ includeEmpty: false }, (c) => {
+          c.value = null;
+        });
+      }
+      const linha0 = m.linhaCab + 1;
+      let linha = linha0;
       const semColuna = /* @__PURE__ */ new Set();
       for (const p of produtos) {
         const row = m.ws.getRow(linha);
@@ -108528,6 +108548,24 @@ server.registerTool(
       const saida = path.join(pasta, `importar-upseller_${carimbo}.xlsx`);
       await wb.xlsx.writeFile(saida);
       writeConfig({ ...readConfig(), modelo: caminho });
+      const fichas = readFichas();
+      for (const p of produtos) {
+        fichas[p.sku] = {
+          titulo: p.titulo,
+          marca: p.marca,
+          descricao: p.descricao,
+          caracteristicas: p.caracteristicas,
+          gtin: p.gtin,
+          ncm: p.ncm,
+          peso_g: p.peso_g,
+          comprimento_cm: p.comprimento_cm,
+          largura_cm: p.largura_cm,
+          altura_cm: p.altura_cm,
+          custo: p.custo,
+          fornecedor: p.fornecedor
+        };
+      }
+      writeFichas(fichas);
       return text({
         gerado: true,
         arquivo: saida,
@@ -108601,6 +108639,14 @@ server.registerTool(
     writeConfig({ ...readConfig(), ultimo_sku });
     return text({ ultimo_sku });
   }
+);
+server.registerTool(
+  "ficha",
+  {
+    description: "Ficha guardada de um SKU (t\xEDtulo, marca, descri\xE7\xE3o, caracter\xEDsticas, GTIN, medidas, custo). Use ao anunciar no Mercado Livre para n\xE3o pesquisar de novo.",
+    inputSchema: { sku: external_exports.string() }
+  },
+  async ({ sku }) => text(readFichas()[sku] ?? { erro: "sem ficha para este SKU" })
 );
 await server.connect(new StdioServerTransport());
 /*! Bundled license information:

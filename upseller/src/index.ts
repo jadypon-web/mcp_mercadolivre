@@ -12,6 +12,15 @@ import { z } from "zod";
 
 const HOME = path.join(os.homedir(), ".upseller-planilha");
 const CONFIG = path.join(HOME, "config.json");
+const FICHAS = path.join(HOME, "fichas.json");
+function readFichas(): Record<string, Record<string, unknown>> {
+  try { return JSON.parse(fs.readFileSync(FICHAS, "utf8")); } catch { return {}; }
+}
+function writeFichas(f: Record<string, Record<string, unknown>>) {
+  fs.mkdirSync(HOME, { recursive: true });
+  fs.writeFileSync(FICHAS, JSON.stringify(f, null, 1));
+}
+
 
 type Fiscal = { ncm?: string; cest?: string; origem?: string };
 type Config = {
@@ -259,6 +268,8 @@ const produto = z.object({
   categoria: z.string().optional(),
   apelido: z.string().optional(),
   marca: z.string().optional(),
+  descricao: z.string().optional().describe("Descrição do anúncio (fica na ficha, o modelo não tem coluna)"),
+  caracteristicas: z.record(z.string(), z.string()).optional().describe("Ficha técnica {nome: valor}"),
   estoque: z.number().optional(),
   preco_varejo: z.number().optional(),
 });
@@ -315,8 +326,14 @@ server.registerTool(
       const m = acharCabecalho(wb, aba);
 
       // Primeira linha livre abaixo do cabeçalho (ignora linhas vazias).
-      let linha = m.linhaCab + 1;
-      while (linha <= m.ws.rowCount && m.ws.getRow(linha).hasValues) linha++;
+      // Apaga linhas de exemplo que vêm no modelo (ex.: "A001-red-xs / Cell Phone Oppo")
+      // para não serem importadas junto com os produtos reais.
+      for (let r = m.linhaCab + 1; r <= m.ws.rowCount; r++) {
+        const row = m.ws.getRow(r);
+        if (row.hasValues) row.eachCell({ includeEmpty: false }, (c) => { c.value = null; });
+      }
+      const linha0 = m.linhaCab + 1;
+      let linha = linha0;
 
       const semColuna = new Set<string>();
       for (const p of produtos) {
@@ -365,6 +382,17 @@ server.registerTool(
       const saida = path.join(pasta, `importar-upseller_${carimbo}.xlsx`);
       await wb.xlsx.writeFile(saida);
       writeConfig({ ...readConfig(), modelo: caminho });
+      // Ficha por SKU (descrição, marca, características, GTIN, medidas) para o
+      // plugin do Mercado Livre usar depois sem pesquisar de novo.
+      const fichas = readFichas();
+      for (const p of produtos) {
+        fichas[p.sku] = {
+          titulo: p.titulo, marca: p.marca, descricao: p.descricao, caracteristicas: p.caracteristicas,
+          gtin: p.gtin, ncm: p.ncm, peso_g: p.peso_g, comprimento_cm: p.comprimento_cm,
+          largura_cm: p.largura_cm, altura_cm: p.altura_cm, custo: p.custo, fornecedor: p.fornecedor,
+        };
+      }
+      writeFichas(fichas);
 
       return text({
         gerado: true,
@@ -444,6 +472,15 @@ server.registerTool(
     writeConfig({ ...readConfig(), ultimo_sku });
     return text({ ultimo_sku });
   }
+);
+
+server.registerTool(
+  "ficha",
+  {
+    description: "Ficha guardada de um SKU (título, marca, descrição, características, GTIN, medidas, custo). Use ao anunciar no Mercado Livre para não pesquisar de novo.",
+    inputSchema: { sku: z.string() },
+  },
+  async ({ sku }) => text(readFichas()[sku] ?? { erro: "sem ficha para este SKU" })
 );
 
 await server.connect(new StdioServerTransport());

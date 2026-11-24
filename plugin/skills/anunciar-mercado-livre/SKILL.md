@@ -81,3 +81,5 @@ preço = (custo + lucro + custo fixo do ML + entrega) / (1 − tarifa% do ML −
 ## Se a conta não estiver conectada
 
 Chame `connect_account`. Na primeira vez, ela abre no navegador uma página do próprio computador onde o usuário digita o App ID e o Client Secret. **Nunca peça esses dados no chat.** Em seguida, abre a página do Mercado Livre, e o usuário só entra na conta e clica em permitir.
+
+Se o produto tem SKU do UpSeller, chame antes a tool `ficha` (plugin UpSeller): traz descrição, marca, características, GTIN e medidas já pesquisados; use-os e não pesquise de novo.
