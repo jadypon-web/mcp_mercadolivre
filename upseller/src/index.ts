@@ -13,7 +13,13 @@ import { z } from "zod";
 const HOME = path.join(os.homedir(), ".upseller-planilha");
 const CONFIG = path.join(HOME, "config.json");
 
-type Config = { modelo?: string; ultimo_sku?: number };
+type Fiscal = { ncm?: string; cest?: string; origem?: string };
+type Config = {
+  modelo?: string;
+  ultimo_sku?: number;
+  padroes?: { fornecedor?: string; origem?: string; estoque?: number; categoria?: string };
+  fiscal?: Record<string, Fiscal>;
+};
 
 function readConfig(): Config {
   try {
@@ -164,10 +170,10 @@ server.registerTool(
   "modelo_colunas",
   {
     description:
-      "Lê o modelo de planilha de importação do UpSeller (arquivo .xlsx baixado em Produtos do Armazém > Importar) e mostra as abas, a linha de cabeçalho, quais colunas foram reconhecidas e quais não. Guarda o caminho do modelo para as próximas vezes. Use na primeira vez ou quando o UpSeller mudar o modelo.",
+      "Lê o modelo .xlsx de importação do UpSeller, mostra colunas reconhecidas e não reconhecidas e guarda o caminho. Use na primeira vez ou se o modelo mudar.",
     inputSchema: {
-      modelo: z.string().optional().describe("Caminho do .xlsx do modelo; se omitido, usa o último guardado"),
-      aba: z.string().optional().describe("Nome da aba (padrão: a que tiver mais colunas reconhecidas)"),
+      modelo: z.string().optional(),
+      aba: z.string().optional(),
     },
   },
   async ({ modelo, aba }) => {
@@ -191,24 +197,25 @@ server.registerTool(
 );
 
 const produto = z.object({
-  sku: z.string().describe("Código interno do produto (único no UpSeller; não dá para mudar depois)"),
-  titulo: z.string().describe("Título do produto"),
-  custo: z.number().describe("Custo de compra unitário em reais (da fonte: NOVA ERA, Eletroleste, Casa Mimosa...)"),
-  peso_g: z.number().describe("Peso em gramas (no UpSeller é sempre em gramas)"),
+  sku: z.string(),
+  titulo: z.string(),
+  custo: z.number().describe("Custo unitário em R$, da fonte (nunca estimado)"),
+  peso_g: z.number().describe("gramas, arredondado para cima"),
   comprimento_cm: z.number(),
   largura_cm: z.number(),
   altura_cm: z.number(),
-  gtin: z.string().optional().describe("Código de barras (EAN/GTIN) real; não inventar"),
+  gtin: z.string().optional(),
+  tipo: z.string().optional().describe("Tipo do produto (ex.: torneira): preenche NCM/CEST/origem guardados por guardar_fiscal"),
   ncm: z.string().optional(),
   cest: z.string().optional(),
-  origem: z.string().optional().describe("Origem da mercadoria, como aparece na lista do modelo"),
+  origem: z.string().optional(),
   fornecedor: z.string().optional(),
   link_fornecedor: z.string().optional(),
-  imagem: z.string().optional().describe("Link da imagem principal"),
+  imagem: z.string().optional(),
   categoria: z.string().optional(),
   apelido: z.string().optional(),
   marca: z.string().optional(),
-  estoque: z.number().optional().describe("Estoque inicial"),
+  estoque: z.number().optional(),
   preco_varejo: z.number().optional(),
 });
 
@@ -216,17 +223,30 @@ server.registerTool(
   "gerar_planilha",
   {
     description:
-      "Preenche o modelo de importação do UpSeller com os produtos e salva um arquivo novo (o modelo original não é alterado). Antes de gravar, confere o que falta: sku, titulo, custo, peso e as 3 medidas são obrigatórios; se algum produto estiver incompleto, NADA é gerado e a resposta lista as pendências de todos de uma vez. Devolve o caminho do arquivo para o usuário importar em Produtos do Armazém > Importar. Nunca invente valores para completar um produto.",
+      "Preenche o modelo de importação do UpSeller e salva um arquivo novo. Obrigatórios: sku, titulo, custo, peso e 3 medidas; se faltar algo em qualquer produto, nada é gerado e todas as pendências voltam de uma vez. Valores padrão (definir_padroes) e NCM/CEST por tipo (guardar_fiscal) são preenchidos sozinhos. Nunca invente valores.",
     inputSchema: {
       produtos: z.array(produto).min(1).max(200),
-      modelo: z.string().optional().describe("Caminho do .xlsx do modelo; se omitido, usa o guardado por modelo_colunas"),
+      modelo: z.string().optional(),
       aba: z.string().optional(),
-      pasta_saida: z.string().optional().describe("Pasta onde salvar (padrão: a pasta do modelo)"),
+      pasta_saida: z.string().optional(),
     },
   },
   async ({ produtos, modelo, aba, pasta_saida }) => {
     try {
       const caminho = resolverModelo(modelo);
+
+      const cfg = readConfig();
+      const semFiscal = new Set<string>();
+      for (const p of produtos) {
+        const f = p.tipo ? cfg.fiscal?.[norm(p.tipo)] : undefined;
+        if (p.tipo && !f) semFiscal.add(p.tipo);
+        p.ncm ??= f?.ncm;
+        p.cest ??= f?.cest;
+        p.origem ??= f?.origem ?? cfg.padroes?.origem;
+        p.fornecedor ??= cfg.padroes?.fornecedor;
+        p.categoria ??= cfg.padroes?.categoria;
+        p.estoque ??= cfg.padroes?.estoque;
+      }
 
       const pendencias: string[] = [];
       const skus = new Set<string>();
@@ -307,8 +327,8 @@ server.registerTool(
         arquivo: saida,
         produtos: produtos.length,
         aba: m.ws.name,
-        campos_sem_coluna_no_modelo: [...semColuna],
-        proximo_passo: "Importar em Produtos do Armazém > Importar > Produto único.",
+        campos_sem_coluna_no_modelo: semColuna.size ? [...semColuna] : undefined,
+        tipos_sem_ncm: semFiscal.size ? [...semFiscal] : undefined,
       });
     } catch (e) {
       return fail(e);
@@ -317,10 +337,41 @@ server.registerTool(
 );
 
 server.registerTool(
+  "definir_padroes",
+  {
+    description: "Guarda valores que se repetem em todo produto (fornecedor, origem, estoque inicial, categoria) para não precisar enviá-los a cada cadastro.",
+    inputSchema: {
+      fornecedor: z.string().optional(),
+      origem: z.string().optional(),
+      estoque: z.number().optional(),
+      categoria: z.string().optional(),
+    },
+  },
+  async (p) => {
+    const c = readConfig();
+    writeConfig({ ...c, padroes: { ...c.padroes, ...p } });
+    return text({ padroes: { ...c.padroes, ...p } });
+  }
+);
+
+server.registerTool(
+  "guardar_fiscal",
+  {
+    description: "Guarda NCM/CEST/origem de um tipo de produto (ex.: torneira, joelho 90). Pesquise uma vez por tipo; nos próximos cadastros gerar_planilha preenche sozinho pelo campo tipo. Sem certeza, não guarde.",
+    inputSchema: { tipo: z.string(), ncm: z.string(), cest: z.string().optional(), origem: z.string().optional() },
+  },
+  async ({ tipo, ncm, cest, origem }) => {
+    const c = readConfig();
+    writeConfig({ ...c, fiscal: { ...c.fiscal, [norm(tipo)]: { ncm, cest, origem } } });
+    return text({ guardado: tipo });
+  }
+);
+
+server.registerTool(
   "proximo_sku",
   {
     description:
-      "Entrega o próximo código SKU numérico livre (contador guardado no computador) e avança o contador. Use definir_ultimo_sku se o UpSeller já tiver SKUs maiores que o contador. Com quantidade > 1 devolve uma lista seguida.",
+      "Próximo(s) SKU numérico(s) livre(s); avança o contador guardado.",
     inputSchema: { quantidade: z.number().int().min(1).max(200).optional() },
   },
   async ({ quantidade }) => {
@@ -342,7 +393,7 @@ server.registerTool(
 server.registerTool(
   "definir_ultimo_sku",
   {
-    description: "Define o maior SKU numérico que já existe no UpSeller (o próximo será este + 1). Só confira com o usuário ou com a lista do UpSeller; não chute.",
+    description: "Define o maior SKU numérico já existente no UpSeller (confirmado, não chutado).",
     inputSchema: { ultimo_sku: z.number().int().min(0) },
   },
   async ({ ultimo_sku }) => {

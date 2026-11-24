@@ -108352,10 +108352,10 @@ var server = new McpServer({ name: "upseller-planilha", version: "0.1.0" });
 server.registerTool(
   "modelo_colunas",
   {
-    description: "L\xEA o modelo de planilha de importa\xE7\xE3o do UpSeller (arquivo .xlsx baixado em Produtos do Armaz\xE9m > Importar) e mostra as abas, a linha de cabe\xE7alho, quais colunas foram reconhecidas e quais n\xE3o. Guarda o caminho do modelo para as pr\xF3ximas vezes. Use na primeira vez ou quando o UpSeller mudar o modelo.",
+    description: "L\xEA o modelo .xlsx de importa\xE7\xE3o do UpSeller, mostra colunas reconhecidas e n\xE3o reconhecidas e guarda o caminho. Use na primeira vez ou se o modelo mudar.",
     inputSchema: {
-      modelo: external_exports.string().optional().describe("Caminho do .xlsx do modelo; se omitido, usa o \xFAltimo guardado"),
-      aba: external_exports.string().optional().describe("Nome da aba (padr\xE3o: a que tiver mais colunas reconhecidas)")
+      modelo: external_exports.string().optional(),
+      aba: external_exports.string().optional()
     }
   },
   async ({ modelo, aba }) => {
@@ -108378,40 +108378,53 @@ server.registerTool(
   }
 );
 var produto = external_exports.object({
-  sku: external_exports.string().describe("C\xF3digo interno do produto (\xFAnico no UpSeller; n\xE3o d\xE1 para mudar depois)"),
-  titulo: external_exports.string().describe("T\xEDtulo do produto"),
-  custo: external_exports.number().describe("Custo de compra unit\xE1rio em reais (da fonte: NOVA ERA, Eletroleste, Casa Mimosa...)"),
-  peso_g: external_exports.number().describe("Peso em gramas (no UpSeller \xE9 sempre em gramas)"),
+  sku: external_exports.string(),
+  titulo: external_exports.string(),
+  custo: external_exports.number().describe("Custo unit\xE1rio em R$, da fonte (nunca estimado)"),
+  peso_g: external_exports.number().describe("gramas, arredondado para cima"),
   comprimento_cm: external_exports.number(),
   largura_cm: external_exports.number(),
   altura_cm: external_exports.number(),
-  gtin: external_exports.string().optional().describe("C\xF3digo de barras (EAN/GTIN) real; n\xE3o inventar"),
+  gtin: external_exports.string().optional(),
+  tipo: external_exports.string().optional().describe("Tipo do produto (ex.: torneira): preenche NCM/CEST/origem guardados por guardar_fiscal"),
   ncm: external_exports.string().optional(),
   cest: external_exports.string().optional(),
-  origem: external_exports.string().optional().describe("Origem da mercadoria, como aparece na lista do modelo"),
+  origem: external_exports.string().optional(),
   fornecedor: external_exports.string().optional(),
   link_fornecedor: external_exports.string().optional(),
-  imagem: external_exports.string().optional().describe("Link da imagem principal"),
+  imagem: external_exports.string().optional(),
   categoria: external_exports.string().optional(),
   apelido: external_exports.string().optional(),
   marca: external_exports.string().optional(),
-  estoque: external_exports.number().optional().describe("Estoque inicial"),
+  estoque: external_exports.number().optional(),
   preco_varejo: external_exports.number().optional()
 });
 server.registerTool(
   "gerar_planilha",
   {
-    description: "Preenche o modelo de importa\xE7\xE3o do UpSeller com os produtos e salva um arquivo novo (o modelo original n\xE3o \xE9 alterado). Antes de gravar, confere o que falta: sku, titulo, custo, peso e as 3 medidas s\xE3o obrigat\xF3rios; se algum produto estiver incompleto, NADA \xE9 gerado e a resposta lista as pend\xEAncias de todos de uma vez. Devolve o caminho do arquivo para o usu\xE1rio importar em Produtos do Armaz\xE9m > Importar. Nunca invente valores para completar um produto.",
+    description: "Preenche o modelo de importa\xE7\xE3o do UpSeller e salva um arquivo novo. Obrigat\xF3rios: sku, titulo, custo, peso e 3 medidas; se faltar algo em qualquer produto, nada \xE9 gerado e todas as pend\xEAncias voltam de uma vez. Valores padr\xE3o (definir_padroes) e NCM/CEST por tipo (guardar_fiscal) s\xE3o preenchidos sozinhos. Nunca invente valores.",
     inputSchema: {
       produtos: external_exports.array(produto).min(1).max(200),
-      modelo: external_exports.string().optional().describe("Caminho do .xlsx do modelo; se omitido, usa o guardado por modelo_colunas"),
+      modelo: external_exports.string().optional(),
       aba: external_exports.string().optional(),
-      pasta_saida: external_exports.string().optional().describe("Pasta onde salvar (padr\xE3o: a pasta do modelo)")
+      pasta_saida: external_exports.string().optional()
     }
   },
   async ({ produtos, modelo, aba, pasta_saida }) => {
     try {
       const caminho = resolverModelo(modelo);
+      const cfg = readConfig();
+      const semFiscal = /* @__PURE__ */ new Set();
+      for (const p of produtos) {
+        const f = p.tipo ? cfg.fiscal?.[norm(p.tipo)] : void 0;
+        if (p.tipo && !f) semFiscal.add(p.tipo);
+        p.ncm ??= f?.ncm;
+        p.cest ??= f?.cest;
+        p.origem ??= f?.origem ?? cfg.padroes?.origem;
+        p.fornecedor ??= cfg.padroes?.fornecedor;
+        p.categoria ??= cfg.padroes?.categoria;
+        p.estoque ??= cfg.padroes?.estoque;
+      }
       const pendencias = [];
       const skus = /* @__PURE__ */ new Set();
       for (const p of produtos) {
@@ -108482,8 +108495,8 @@ server.registerTool(
         arquivo: saida,
         produtos: produtos.length,
         aba: m.ws.name,
-        campos_sem_coluna_no_modelo: [...semColuna],
-        proximo_passo: "Importar em Produtos do Armaz\xE9m > Importar > Produto \xFAnico."
+        campos_sem_coluna_no_modelo: semColuna.size ? [...semColuna] : void 0,
+        tipos_sem_ncm: semFiscal.size ? [...semFiscal] : void 0
       });
     } catch (e) {
       return fail(e);
@@ -108491,9 +108504,38 @@ server.registerTool(
   }
 );
 server.registerTool(
+  "definir_padroes",
+  {
+    description: "Guarda valores que se repetem em todo produto (fornecedor, origem, estoque inicial, categoria) para n\xE3o precisar envi\xE1-los a cada cadastro.",
+    inputSchema: {
+      fornecedor: external_exports.string().optional(),
+      origem: external_exports.string().optional(),
+      estoque: external_exports.number().optional(),
+      categoria: external_exports.string().optional()
+    }
+  },
+  async (p) => {
+    const c = readConfig();
+    writeConfig({ ...c, padroes: { ...c.padroes, ...p } });
+    return text({ padroes: { ...c.padroes, ...p } });
+  }
+);
+server.registerTool(
+  "guardar_fiscal",
+  {
+    description: "Guarda NCM/CEST/origem de um tipo de produto (ex.: torneira, joelho 90). Pesquise uma vez por tipo; nos pr\xF3ximos cadastros gerar_planilha preenche sozinho pelo campo tipo. Sem certeza, n\xE3o guarde.",
+    inputSchema: { tipo: external_exports.string(), ncm: external_exports.string(), cest: external_exports.string().optional(), origem: external_exports.string().optional() }
+  },
+  async ({ tipo, ncm, cest, origem }) => {
+    const c = readConfig();
+    writeConfig({ ...c, fiscal: { ...c.fiscal, [norm(tipo)]: { ncm, cest, origem } } });
+    return text({ guardado: tipo });
+  }
+);
+server.registerTool(
   "proximo_sku",
   {
-    description: "Entrega o pr\xF3ximo c\xF3digo SKU num\xE9rico livre (contador guardado no computador) e avan\xE7a o contador. Use definir_ultimo_sku se o UpSeller j\xE1 tiver SKUs maiores que o contador. Com quantidade > 1 devolve uma lista seguida.",
+    description: "Pr\xF3ximo(s) SKU num\xE9rico(s) livre(s); avan\xE7a o contador guardado.",
     inputSchema: { quantidade: external_exports.number().int().min(1).max(200).optional() }
   },
   async ({ quantidade }) => {
@@ -108514,7 +108556,7 @@ server.registerTool(
 server.registerTool(
   "definir_ultimo_sku",
   {
-    description: "Define o maior SKU num\xE9rico que j\xE1 existe no UpSeller (o pr\xF3ximo ser\xE1 este + 1). S\xF3 confira com o usu\xE1rio ou com a lista do UpSeller; n\xE3o chute.",
+    description: "Define o maior SKU num\xE9rico j\xE1 existente no UpSeller (confirmado, n\xE3o chutado).",
     inputSchema: { ultimo_sku: external_exports.number().int().min(0) }
   },
   async ({ ultimo_sku }) => {

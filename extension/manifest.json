@@ -2,7 +2,7 @@
   "manifest_version": "0.2",
   "name": "mercadolivre-jadypon",
   "display_name": "Mercado Livre (JadyponHidro)",
-  "version": "1.5.1",
+  "version": "1.6.0",
   "description": "Mercado Livre pela API oficial: anúncios completos, Flex, preço de atacado, edição de tudo, checagem do que falta, perguntas, pedidos e envios.",
   "author": {
     "name": "JadyponHidro"
