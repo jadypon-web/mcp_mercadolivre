@@ -24079,6 +24079,7 @@ registerTool(
           gtin: at.get("GTIN"),
           marca: at.get("BRAND"),
           peso_g: num(at.get("SELLER_PACKAGE_WEIGHT"), "g"),
+          peso_fonte: "anuncio_ml",
           comprimento_cm: num(at.get("SELLER_PACKAGE_LENGTH"), "cm"),
           largura_cm: num(at.get("SELLER_PACKAGE_WIDTH"), "cm"),
           altura_cm: num(at.get("SELLER_PACKAGE_HEIGHT"), "cm"),
