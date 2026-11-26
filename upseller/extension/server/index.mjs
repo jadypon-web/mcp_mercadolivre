@@ -108431,7 +108431,8 @@ var produto = external_exports.object({
   sku: external_exports.string(),
   titulo: external_exports.string(),
   custo: external_exports.number().describe("Custo unit\xE1rio em R$, da fonte (nunca estimado)"),
-  peso_g: external_exports.number().describe("gramas, arredondado para cima"),
+  peso_g: external_exports.number().describe("gramas, arredondado para cima. NUNCA chutar: tem que vir de fonte real (peso_fonte)"),
+  peso_fonte: external_exports.enum(["anuncio_ml", "planilha_acqualimp", "fabricante", "pesquisa", "produto_parecido"]).describe("De onde veio o peso: anuncio_ml (dados_para_upseller), planilha_acqualimp (aba Tabela de Pesos e Medidas), fabricante (ficha/site), pesquisa (busca na internet com o peso do pr\xF3prio produto), produto_parecido (s\xF3 se n\xE3o achou o exato)"),
   comprimento_cm: external_exports.number(),
   largura_cm: external_exports.number(),
   altura_cm: external_exports.number(),
@@ -108485,6 +108486,7 @@ server.registerTool(
         if (!p.titulo.trim()) falta.push("titulo");
         if (!(p.custo > 0)) falta.push("custo");
         if (!(p.peso_g > 0)) falta.push("peso");
+        if (!p.peso_fonte) falta.push("peso_fonte (de onde veio o peso? pesquise antes de preencher)");
         if (!(p.comprimento_cm > 0)) falta.push("comprimento");
         if (!(p.largura_cm > 0)) falta.push("largura");
         if (!(p.altura_cm > 0)) falta.push("altura");
@@ -108572,7 +108574,9 @@ server.registerTool(
         produtos: produtos.length,
         aba: m.ws.name,
         campos_sem_coluna_no_modelo: semColuna.size ? [...semColuna] : void 0,
-        tipos_sem_ncm: semFiscal.size ? [...semFiscal] : void 0
+        tipos_sem_ncm: semFiscal.size ? [...semFiscal] : void 0,
+        pesos_para_conferir: produtos.map((p) => ({ sku: p.sku, peso_g: p.peso_g, fonte: p.peso_fonte })),
+        aviso_peso: produtos.some((p) => p.peso_fonte === "produto_parecido" || p.peso_fonte === "pesquisa") ? "H\xE1 pesos vindos de pesquisa ou de produto parecido: avise o usu\xE1rio quais s\xE3o." : void 0
       });
     } catch (e) {
       return fail(e);

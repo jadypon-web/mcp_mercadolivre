@@ -253,7 +253,10 @@ const produto = z.object({
   sku: z.string(),
   titulo: z.string(),
   custo: z.number().describe("Custo unitário em R$, da fonte (nunca estimado)"),
-  peso_g: z.number().describe("gramas, arredondado para cima"),
+  peso_g: z.number().describe("gramas, arredondado para cima. NUNCA chutar: tem que vir de fonte real (peso_fonte)"),
+  peso_fonte: z
+    .enum(["anuncio_ml", "planilha_acqualimp", "fabricante", "pesquisa", "produto_parecido"])
+    .describe("De onde veio o peso: anuncio_ml (dados_para_upseller), planilha_acqualimp (aba Tabela de Pesos e Medidas), fabricante (ficha/site), pesquisa (busca na internet com o peso do próprio produto), produto_parecido (só se não achou o exato)"),
   comprimento_cm: z.number(),
   largura_cm: z.number(),
   altura_cm: z.number(),
@@ -311,6 +314,7 @@ server.registerTool(
         if (!p.titulo.trim()) falta.push("titulo");
         if (!(p.custo > 0)) falta.push("custo");
         if (!(p.peso_g > 0)) falta.push("peso");
+        if (!p.peso_fonte) falta.push("peso_fonte (de onde veio o peso? pesquise antes de preencher)");
         if (!(p.comprimento_cm > 0)) falta.push("comprimento");
         if (!(p.largura_cm > 0)) falta.push("largura");
         if (!(p.altura_cm > 0)) falta.push("altura");
@@ -401,6 +405,10 @@ server.registerTool(
         aba: m.ws.name,
         campos_sem_coluna_no_modelo: semColuna.size ? [...semColuna] : undefined,
         tipos_sem_ncm: semFiscal.size ? [...semFiscal] : undefined,
+        pesos_para_conferir: produtos.map((p) => ({ sku: p.sku, peso_g: p.peso_g, fonte: p.peso_fonte })),
+        aviso_peso: produtos.some((p) => p.peso_fonte === "produto_parecido" || p.peso_fonte === "pesquisa")
+          ? "Há pesos vindos de pesquisa ou de produto parecido: avise o usuário quais são."
+          : undefined,
       });
     } catch (e) {
       return fail(e);

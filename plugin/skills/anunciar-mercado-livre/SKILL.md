@@ -80,7 +80,7 @@ lucro = Você recebe − custo − 6% do preço − R$ 3 (Flex)
 - Não pesquise nem releia o que já sabe. Categoria já usada: `preset` no `create_item` e nada de `get_category_attributes`. Categoria nova: leia uma vez (`value_filter` em vez de aumentar `max_values`) e grave as características fixas com `save_category_preset`.
 - Não rode `check_listing_quality` depois de criar ou editar: o resultado já diz se está completo.
 - Não ligue ao catálogo (`get_catalog_product` só sem `full`, se precisar consultar).
-- Não abra o UpSeller pelo Chrome; o cadastro lá é a skill `cadastrar-upseller`.
+- O cadastro no UpSeller é feito pela skill `cadastrar-produto-upseller-formulario` (preenche o formulário no Chrome; nunca planilha).
 - Resposta final: link, preço, atacado e pendências. Não repita o anúncio no chat.
 
 ## Passo a passo para criar
